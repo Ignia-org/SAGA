@@ -92,6 +92,8 @@ node src/cli.mjs receipt m-request-id --root /path/to/repository --from contribu
 ```
 
 The CLI writes files but never stages, commits, or pushes them. [PROTOCOL.md](docs/PROTOCOL.md) defines the Markdown record format, ownership rules, receipt hashes, and remaining commands.
+The header shows uncommitted file counts and commits ahead/behind the locally known remote branch. Refresh does not fetch Git; remote counts update when Git synchronizes. **Push now** publishes the current branch even for commits created outside SAGA. **Auto push** enables commits and synchronization after writes; an existing publication pause must first be released through an explicitly confirmed push.
+
 ## Validation in CI
 
 SAGA's own CI validates its synthetic example and runs the test suite. For a managed repository, see [the workflow template](examples/mailbox-validation.yml). During the private trial, checking out SAGA from another private repository requires a token with read access, stored as a CI secret. The template makes the source repository and revision explicit. For a public release, the same validation can run as the included composite action with a pinned release reference.

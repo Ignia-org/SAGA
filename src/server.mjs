@@ -61,13 +61,22 @@ export async function createDashboard(root, options = {}) {
     const changes = store.files.filter(f => f.records.some(r => remove.has(r.meta.id))).map(f => ({ relative: f.relative, old: f.text, next: mailboxText(path.basename(f.location, '.md'), f.location.split('/')[0], f.records.filter(r => !remove.has(r.meta.id))) }));
     await persist(changes, `exchange: close ${[...requestIds].join(', ')}`); return requestIds.size;
   }
+  async function gitStatus(config) {
+    const branch = await git('branch', '--show-current');
+    const files = (await git('status', '--porcelain')).split('\n').filter(Boolean);
+    const remoteRef = 'refs/remotes/' + config.gitRemote + '/' + branch;
+    const counts = await git('rev-list', '--left-right', '--count', remoteRef + '...HEAD').catch(() => null);
+    const [behind, ahead] = counts === null ? [null, null] : counts.split(/\s+/).map(Number);
+    return { changedFiles: files.length, stagedFiles: (await git('diff', '--cached', '--name-only')).split('\n').filter(Boolean).length, ahead, behind, remoteRef, remoteKnown: counts !== null };
+  }
   async function publish(config) {
     const pending = await pendingBranch();
-    if (pending) {
+    {
       if (await publicationHeld()) throw new Error('Committed locally. Remote publication is paused pending authorization.');
-      if (pending !== await git('branch', '--show-current')) throw new Error(`Pending publication belongs to branch ${pending}. Switch back.`);
+      if (pending && pending !== await git('branch', '--show-current')) throw new Error(`Pending publication belongs to branch ${pending}. Switch back.`);
       const branch = await checkBranch(config);
-      await git('push', config.gitRemote, 'HEAD:refs/heads/' + branch);
+      const status = await gitStatus(config);
+      if (status.ahead !== 0) await git('push', config.gitRemote, 'HEAD:refs/heads/' + branch);
       await git('config', '--local', '--unset', 'saga.pendingBranch').catch(() => {});
       await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
     }
@@ -94,7 +103,7 @@ export async function createDashboard(root, options = {}) {
     configureSchedule(config);
     const store = await readStore(root, config);
     const outbox = await read(`${config.mailboxDirectory}/outboxes/${config.identity}.md`);
-    return { workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
+    return { git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
   }
   async function message(data) {
     const config = await loadConfig(root), store = await readStore(root, config);
@@ -190,7 +199,14 @@ export async function createDashboard(root, options = {}) {
       if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return send(403, { error: 'Origin denied' });
       let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 100000) return send(413, { error: 'Message too large' }); }
       const data = JSON.parse(body || '{}');
-      if (url.pathname === '/api/sync') return send(200, await locked(() => synchronize(data.operation || 'configured')));
+      if (url.pathname === '/api/sync') return send(200, await locked(async () => {
+        if (data.releaseHold === true) {
+          if (data.operation !== 'push') throw new Error('Publication hold can only be released by an explicit push.');
+          await git('config', '--local', '--unset', 'saga.publicationHold').catch(() => {});
+          await git('config', '--local', '--unset', 'dashboard.publicationHold').catch(() => {});
+        }
+        return synchronize(data.operation || 'configured');
+      }));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
       const result = await locked(async () => {
         if (url.pathname === '/api/workspace') return openWorkspace(data);

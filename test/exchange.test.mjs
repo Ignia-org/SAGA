@@ -189,3 +189,13 @@ test('portable skill helpers are synchronized and installation never overwrites 
     const output=execFileSync('node',[path.join(f.root,'skills/saga-mailbox/scripts/cli.mjs'),'validate','--root',f.root],{encoding:'utf8',windowsHide:true});assert.match(output,/Valid:/);
   }finally{await f.dispose();}
 });
+
+test('Git indicators count edits and manual push publishes commits made outside SAGA',async()=>{
+ const f=await fixture();let app;try{
+ const remote=path.join(f.temp,'remote.git');git(f.temp,'init','--bare',remote);git(f.root,'remote','add','origin',remote);git(f.root,'push','-u','origin','HEAD');app=await start(f.root);
+ assert.equal((await app.state()).git.ahead,0);
+ await writeFile(path.join(f.root,'unrelated.txt'),'changed');assert.equal((await app.state()).git.changedFiles,1);
+ git(f.root,'add','unrelated.txt');assert.equal((await app.state()).git.stagedFiles,1);git(f.root,'commit','-m','external change');
+ assert.equal((await app.state()).git.ahead,1);assert.equal((await app.synchronize('push')).state,'ok');assert.equal((await app.state()).git.ahead,0);
+ }finally{if(app)await app.stop();await f.dispose();}
+});
