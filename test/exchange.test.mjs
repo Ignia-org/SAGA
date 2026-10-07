@@ -6,13 +6,12 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Script } from 'node:vm';
 import { createDashboard } from '../src/server.mjs';
-import { migrate } from '../src/migrate.mjs';
 import { run } from '../src/cli.mjs';
 import { defaults } from '../src/preferences.mjs';
 import { loadConfig, readStore, mailboxText, serializeRecord, parseMailbox, cleanupCandidates, recordHash, validateConfig } from '../src/protocol.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-const config = () => ({ schema: 1, title: 'Reusable workspace', identity: 'coordinator', participants: ['coordinator', 'researcher', 'reviewer'].map(id => ({ id, label: id })), mailboxDirectory: 'mailboxes', legacyDirectory: null, cleanup: 'approval', syncSeconds: 60, autoPull: true, autoPush: true, syncAfterWrite: true, commitPrefix: 'exchange' });
+const config = () => ({ schema: 1, title: 'Reusable workspace', identity: 'coordinator', participants: ['coordinator', 'researcher', 'reviewer'].map(id => ({ id, label: id })), mailboxDirectory: 'mailboxes', cleanup: 'approval', syncSeconds: 60, autoPull: true, autoPush: true, syncAfterWrite: true, commitPrefix: 'exchange' });
 const meta = (id, from = 'coordinator', to = 'researcher') => ({ schema: 1, id, from, to, kind: 'request', status: 'open', priority: 'normal', created: '2026-10-07T13:00:00Z', title: 'Review', reply_to: null });
 async function fixture() {
   const temp = await mkdtemp(path.join(os.tmpdir(), 'exchange-test-')), root = path.join(temp, 'root');await mkdir(root);
@@ -132,7 +131,7 @@ test('initializer creates reusable mailboxes and refuses to overwrite configurat
   const temp=await mkdtemp(path.join(os.tmpdir(),'exchange-init-'));
   try {
     const args=['init','--root',temp,'--identity','alice','--participants','alice,bob','--title','Another workspace'];
-    await run(args,()=>{});const config=await loadConfig(temp);assert.equal(config.identity,'alice');assert.equal(config.legacyDirectory,null);
+    await run(args,()=>{});const config=await loadConfig(temp);assert.equal(config.identity,'alice');
     const store=await readStore(temp,config);assert.equal(store.errors.length,0);assert.equal(store.files.length,4);
     await assert.rejects(()=>run(args,()=>{}),/EEXIST/);
     await rm(path.join(temp,'mailboxes/outboxes'),{recursive:true,force:true});assert.match((await readStore(temp,config)).errors.join(' '),/missing/);
@@ -149,21 +148,8 @@ test('UI script parses and serves an English interface', async () => {
 test('mailbox symlinks are rejected', {skip:process.platform==='win32'?'Windows symlink creation requires extra privileges':false}, async()=>{
   const f=await fixture();try{const link=path.join(f.root,'mailboxes/outboxes/coordinator.md');await rm(link);await symlink(path.join(f.root,'unrelated.txt'),link);assert.match((await readStore(f.root,config())).errors.join(' '),/Unknown owner|Symlinks/);}finally{await f.dispose();}
 });
-test('migration preserves every source section, keeps originals, and cannot import twice', async()=>{
-  const f=await fixture();
-  try {
-    const c=config();c.legacyDirectory='legacy';await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify(c));await mkdir(path.join(f.root,'legacy'));
-    const source='# Original notes\n\n## 2026-10-07 — Result\n\n### Detail\n- original information\n\n## 2026-10-06 — Earlier\n\nQuestion still open.\n';
-    const file=path.join(f.root,'legacy/researcher-to-coordinator.md');await writeFile(file,source);
-    const result=await migrate(f.root);assert.equal(result.imported,3);assert.equal(await readFile(file,'utf8'),source);
-    const updated=await loadConfig(f.root);assert.equal(updated.legacyDirectory,null);
-    const store=await readStore(f.root,updated);assert.equal(store.errors.length,0);assert.equal(store.messages.length,3);assert.ok(store.messages.every(r=>r.meta.status==='untriaged'&&r.meta.reply_to===null));
-    assert.ok(store.messages.some(r=>r.body.includes('### Detail\n- original information')));assert.ok(store.messages.some(r=>r.body.includes('# Original notes')));
-    await assert.rejects(()=>migrate(f.root),/already disabled/);
-  } finally {await f.dispose();}
-});
 test('new workspaces opt in to Git automation and expose validated timing controls',()=>{
-  const c=validateConfig({schema:1,title:'Independent',identity:'alice',participants:[{id:'alice',label:'Alice'},{id:'bob',label:'Bob'}],mailboxDirectory:'messages',legacyDirectory:null,cleanup:'approval'});
+  const c=validateConfig({schema:1,title:'Independent',identity:'alice',participants:[{id:'alice',label:'Alice'},{id:'bob',label:'Bob'}],mailboxDirectory:'messages',cleanup:'approval'});
   assert.equal(c.refreshSeconds,60);assert.equal(c.syncSeconds,300);assert.equal(c.autoPull,false);assert.equal(c.autoPush,false);assert.equal(c.syncOnStart,false);assert.equal(c.syncAfterWrite,false);
   assert.equal(validateConfig({...c,refreshSeconds:0,syncSeconds:0}).refreshSeconds,0);
   assert.throws(()=>validateConfig({...c,refreshSeconds:5}),/refreshSeconds/);assert.throws(()=>validateConfig({...c,autoCommit:false,autoPush:true}),/Automatic push/);
@@ -173,7 +159,7 @@ test('settings update all preferences without hardcoded identities and support m
   const f=await fixture();let app;
   try{
     app=await start(f.root);const initial=await app.state(),head=git(f.root,'rev-parse','HEAD');
-    const settings={title:'Independent project',identity:'reviewer',refreshSeconds:120,syncSeconds:0,cleanupSeconds:600,autoCommit:false,autoPull:false,autoPush:false,syncAfterWrite:false,syncOnStart:false,timeZone:'Europe/Paris',importOffset:'+02:00',gitRemote:'origin',pageSize:12,defaultExpanded:1,historyLimit:15,defaultKind:'question',defaultPriority:'high',defaultStatus:'waiting',showMonitoring:false,confirmCleanup:false,commitPrefix:'team'};
+    const settings={title:'Independent project',identity:'reviewer',refreshSeconds:120,syncSeconds:0,cleanupSeconds:600,autoCommit:false,autoPull:false,autoPush:false,syncAfterWrite:false,syncOnStart:false,timeZone:'Europe/Paris',gitRemote:'origin',pageSize:12,defaultExpanded:1,historyLimit:15,defaultKind:'question',defaultPriority:'high',defaultStatus:'waiting',showMonitoring:false,confirmCleanup:false,commitPrefix:'team'};
     assert.equal((await app.call('settings',{settings,version:initial.configVersion})).status,200);
     const current=await app.state();for(const [key,value]of Object.entries(settings))assert.equal(current.config[key],value);
     assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.equal((await app.call('settings',{settings,version:initial.configVersion})).status,409);
@@ -188,7 +174,7 @@ test('workspace selection is validated and initialization commits only its new f
     app=await start(f.root);const response=await app.call('workspace',{root:g.root});assert.equal(response.status,200);assert.equal((await app.state()).workspaceRoot,await (await import('node:fs/promises')).realpath(g.root));
     const unrelated=path.join(g.root,'nested');await mkdir(unrelated);assert.equal((await app.call('workspace',{root:unrelated})).status,409);assert.equal((await app.state()).workspaceRoot,await (await import('node:fs/promises')).realpath(g.root));
     const empty=path.join(f.temp,'new-workspace');await mkdir(empty);git(empty,'init');git(empty,'config','user.name','Test');git(empty,'config','user.email','test@example.com');
-    const setup={schema:1,title:'New workspace',identity:'alice',participants:[{id:'alice',label:'Alice'},{id:'bob',label:'Bob'}],mailboxDirectory:'communications',legacyDirectory:null,cleanup:'approval'};
+    const setup={schema:1,title:'New workspace',identity:'alice',participants:[{id:'alice',label:'Alice'},{id:'bob',label:'Bob'}],mailboxDirectory:'communications',cleanup:'approval'};
     assert.equal((await app.call('workspace',{root:empty,initialize:true,config:setup})).status,200);
     const state=await app.state();assert.equal(state.config.identity,'alice');assert.equal(state.config.autoPush,false);assert.equal(state.errors.length,0);assert.match(git(empty,'log','-1','--oneline'),/initialize workspace/);
     assert.equal((await app.call('workspace',{root:empty,initialize:true,config:setup})).status,409);

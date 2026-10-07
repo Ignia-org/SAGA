@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, writeFile, readdir, realpath, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, realpath, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -10,14 +10,6 @@ import { hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidate
 
 const exec = promisify(execFile), here = path.dirname(fileURLToPath(import.meta.url));
 export const version = hash;
-export function sections(text) {
-  const result = []; let current;
-  text.replace(/\r\n/g, '\n').split('\n').forEach((text, line) => {
-    if (/^## /.test(text)) { current = { title: text.slice(3).trim(), line, body: [] }; result.push(current); }
-    else if (current) current.body.push({ text, line });
-  });
-  return result.length ? result : [{ title: 'Exchange', line: 0, body: text.split('\n').map((text, line) => ({ text, line })) }];
-}
 export async function createDashboard(root, options = {}) {
   root = await realpath(root);
   const token = randomBytes(24).toString('hex'); let queue = Promise.resolve();
@@ -97,22 +89,12 @@ export async function createDashboard(root, options = {}) {
     } catch (e) { sync.state = 'error'; sync.message = e.stderr?.trim() || e.message; }
     return sync;
   }
-  async function legacy(config) {
-    if (!config.legacyDirectory) return [];
-    const dir = await safePath(root, config.legacyDirectory);
-    const names = await readdir(dir).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
-    const resolve = name => config.participants.find(p => [p.id, ...(p.aliases || [])].some(a => a.toLowerCase() === name.toLowerCase()))?.id || name.toLowerCase();
-    return Promise.all(names.filter(n => /^[\w-]+-to-[\w-]+\.md$/i.test(n)).map(async name => {
-      const text = await read(`${config.legacyDirectory}/${name}`), [from, to] = name.slice(0, -3).split(/-to-/i);
-      return { name, from: resolve(from), to: resolve(to.replace(/-\d{4}-.*$/, '')), sections: sections(text) };
-    }));
-  }
   async function state() {
     let config; try { config = await loadConfig(root); } catch (e) { if (e.code === 'ENOENT') return { setupRequired: true, workspaceRoot: root }; throw e; }
     configureSchedule(config);
     const store = await readStore(root, config);
     const outbox = await read(`${config.mailboxDirectory}/outboxes/${config.identity}.md`);
-    return { workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, legacy: await legacy(config), sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
+    return { workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
   }
   async function message(data) {
     const config = await loadConfig(root), store = await readStore(root, config);
@@ -232,7 +214,7 @@ export async function createDashboard(root, options = {}) {
         if (url.pathname === '/api/settings') {
           const old = await read('exchange.config.json'); if (hash(old) !== data.version) throw new Error('Settings changed. Refresh first.');
           const previous = await loadConfig(root);
-          const allowed = ['title', 'identity', 'participants', 'mailboxDirectory', 'legacyDirectory', 'cleanup', ...Object.keys(defaults)];
+          const allowed = ['title', 'identity', 'participants', 'mailboxDirectory', 'cleanup', ...Object.keys(defaults)];
           const patch = data.settings || { cleanup: data.cleanup };
           if (Object.keys(patch).some(key => !allowed.includes(key))) throw new Error('Unknown setting.');
           const config = validateConfig({ ...previous, ...patch });

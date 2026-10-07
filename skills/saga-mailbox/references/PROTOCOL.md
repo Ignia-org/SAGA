@@ -9,7 +9,7 @@ Under `mailboxDirectory`, each participant writes only:
 - `outboxes/<own-id>.md`: requests, questions, decisions, reports, and replies sent to any other participant.
 - `receipts/<own-id>.md`: completion statements for messages received from others. This is the separate completion inbox stream when viewed by recipients.
 
-At session start, read `outboxes/*.md` and filter records where `to` is your ID. Read completion receipts where `to` is your ID too. Legacy channels remain readable at `legacyDirectory`, but write new messages using this protocol.
+At session start, read `outboxes/*.md` and filter records where `to` is your ID. Read completion receipts where `to` is your ID too.
 
 An outbox owner removes fulfilled requests from its own file. Never edit or remove someone else's outbox message. The dashboard is configured to act as its `identity`; it may remove that identity's requests and consume corresponding completion receipts from the dedicated receipt files. Ordinary replies/reports in another participant's outbox remain that participant's responsibility. Do not put strategic decisions solely in a transient mailbox: record lasting decisions in the relevant specification before cleanup.
 
@@ -44,7 +44,7 @@ Files have one optional H1 header and zero or more delimited records. Metadata i
 
 IDs must be globally unique lowercase slugs of up to 64 characters. Keep the ID stable when editing a message. `kind`: `request`, `question`, `decision`, `report`, `reply`, `receipt`. `status`: `untriaged`, `open`, `in_progress`, `waiting`, `blocked`, `done`. `priority`: `low`, `normal`, `high`, `urgent`. `created`: ISO timestamp including timezone. `title`: one line, at most 200 characters. `reply_to`: incoming message ID or null. Do not add unknown metadata fields or use the record delimiters in message bodies.
 
-Use plain words rather than decorative emojis in new subjects, headings, bullets, and bodies. Imported historical text is retained verbatim, including its original notation. Imported sessions have status `untriaged`; no completion, priority, reply linkage, or receipt is inferred. Their original source heading is retained in the body when the display title must be shortened. Dates without times use midnight with the configured `importOffset`; this is a sorting convention, not a recovered sending time.
+Use plain words rather than decorative emojis in new subjects, headings, bullets, and bodies.
 
 ## Completion receipts and cleanup
 
@@ -68,7 +68,7 @@ node src/cli.mjs receipt m-example-001 --from researcher --outcome completed --b
 node src/cli.mjs close m-owned-request --from researcher --root /path/to/workspace
 ```
 
-The CLI checks the format and writes files. It does **not** stage, commit, or push. Commit your own mailbox changes using your normal agent workflow, then publish them so the dashboard can pull them. `list` outputs IDs, hashes, bodies, and paths as JSON. `validate` exits nonzero for malformed records, duplicate IDs, unknown participants, incorrect ownership, unexpected files, unsafe paths, or invalid configuration. Stale/dangling receipts and replies are permitted because their original messages may have been edited or cleaned already. Legacy free-form Markdown is excluded from strict validation.
+The CLI checks the format and writes files. It does **not** stage, commit, or push. Commit your own mailbox changes using your normal agent workflow, then publish them so the dashboard can pull them. `list` outputs IDs, hashes, bodies, and paths as JSON. `validate` exits nonzero for malformed records, duplicate IDs, unknown participants, incorrect ownership, unexpected files, unsafe paths, or invalid configuration. Stale/dangling receipts and replies are permitted because their original messages may have been edited or cleaned already.
 
 From the separate SAGA checkout, initialize arbitrary participant identities in a workspace repository:
 

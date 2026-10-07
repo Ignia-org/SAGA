@@ -22,7 +22,7 @@ export async function run(args, write = console.log) {
   }
   if (command === 'init') {
     const ids = (flags.participants || '').split(',').filter(Boolean);
-    const config = validateConfig({ schema: 1, title: flags.title || 'Exchange workspace', identity: flags.identity, participants: ids.map(id => ({ id, label: id })), mailboxDirectory: flags['mailbox-directory'] || 'mailboxes', legacyDirectory: flags['legacy-directory'] || null, cleanup: 'approval' });
+    const config = validateConfig({ schema: 1, title: flags.title || 'Exchange workspace', identity: flags.identity, participants: ids.map(id => ({ id, label: id })), mailboxDirectory: flags['mailbox-directory'] || 'mailboxes', cleanup: 'approval' });
     await writeFile(await safePath(root, 'exchange.config.json'), JSON.stringify(config, null, 2) + '\n', { flag: 'wx' });
     for (const category of ['outboxes', 'receipts']) {
       await mkdir(await safePath(root, `${config.mailboxDirectory}/${category}`), { recursive: true });
@@ -32,7 +32,7 @@ export async function run(args, write = console.log) {
   }
   const config = await loadConfig(root), store = await readStore(root, config);
   if (store.errors.length) throw new Error(store.errors.join('\n'));
-  if (command === 'validate') { write(`Valid: ${store.messages.length} records in ${store.files.length} structured mailboxes. Legacy prose is read-only and excluded.`); return; }
+  if (command === 'validate') { write(`Valid: ${store.messages.length} records in ${store.files.length} structured mailboxes.`); return; }
   if (command === 'list') {
     const records = store.messages.filter(r => (!flags.to || r.meta.to === flags.to) && (!flags.from || r.meta.from === flags.from));
     write(JSON.stringify(records.map(r => ({ ...r.meta, sha256: r.sha256, body: r.body, file: r.file })), null, 2)); return;

@@ -23,11 +23,9 @@ export function validateConfig(c) {
     }
   }
   if (!ids.has(c.identity)) fail('Dashboard identity must be a configured participant.');
-  for (const key of ['mailboxDirectory', 'legacyDirectory']) {
-    if (key === 'legacyDirectory' && c[key] === null) continue;
+  for (const key of ['mailboxDirectory']) {
     if (typeof c[key] !== 'string' || !c[key] || path.isAbsolute(c[key]) || c[key].includes('\\') || c[key].split('/').some(s => !s || s === '.' || s === '..' || !/^[\w.-]+$/.test(s))) fail(`Unsafe ${key}. Use a repository-relative path.`);
   }
-  if (c.legacyDirectory && (c.legacyDirectory === c.mailboxDirectory || c.legacyDirectory.startsWith(c.mailboxDirectory + '/') || c.mailboxDirectory.startsWith(c.legacyDirectory + '/'))) fail('Legacy and structured mailbox directories must be separate.');
   if (!['approval', 'automatic', 'off'].includes(c.cleanup)) fail('Cleanup must be approval, automatic, or off.');
   return validatePreferences(c);
 }

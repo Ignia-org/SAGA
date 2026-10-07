@@ -17,7 +17,7 @@ const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8'
 let app, browser;
 try {
   await mkdir(root);git('init');git('config','user.name','Test');git('config','user.email','test@example.com');
-  const config={schema:1,title:'Project control room',identity:'owner',participants:[{id:'owner',label:'Project owner'},{id:'worker',label:'Research team'},{id:'auditor',label:'Review team'}],mailboxDirectory:'mailboxes',legacyDirectory:null,cleanup:'approval',syncSeconds:60,refreshSeconds:10,defaultExpanded:2};
+  const config={schema:1,title:'Project control room',identity:'owner',participants:[{id:'owner',label:'Project owner'},{id:'worker',label:'Research team'},{id:'auditor',label:'Review team'}],mailboxDirectory:'mailboxes',cleanup:'approval',syncSeconds:60,refreshSeconds:10,defaultExpanded:2};
   await writeFile(path.join(root,'exchange.config.json'),JSON.stringify(config));
   for(const category of ['outboxes','receipts']){await mkdir(path.join(root,'mailboxes',category),{recursive:true});for(const p of config.participants)await writeFile(path.join(root,'mailboxes',category,p.id+'.md'),mailboxText(p.id,category,[]));}
   git('add','.');git('commit','-m','initial');

@@ -64,7 +64,7 @@ Workspace settings are stored in `exchange.config.json` in the managed repositor
 | History commits | 60 | Configurable, up to 200 |
 | Commit prefix | `saga` | Configurable |
 
-Identity, participant IDs/labels/aliases, mailbox directory, optional legacy directory, monitoring visibility, and legacy display are configurable too. Participant IDs stay stable; changing labels is safe. Existing mailbox directories must be valid before selecting them; SAGA does not silently relocate data. Initialize a new layout with the setup screen or CLI.
+Identity, participant IDs/labels/aliases, mailbox directory, and monitoring visibility are configurable too. Participant IDs stay stable; changing labels is safe. Existing mailbox directories must be valid before selecting them; SAGA does not silently relocate data. Initialize a new layout with the setup screen or CLI.
 
 **Refresh** only rereads files. **Sync now** follows your configured pull/push switches. Settings also offers explicit **Pull now** and **Push pending commits** actions. Automatic cleanup requires automatic commits so its history is retained. With manual commits, SAGA saves edits to disk and leaves committing to you.
 
@@ -91,14 +91,7 @@ node src/cli.mjs list --root /path/to/repository --to contributor
 node src/cli.mjs receipt m-request-id --root /path/to/repository --from contributor --body-file result.md
 ```
 
-The CLI writes files but never stages, commits, or pushes them. [PROTOCOL.md](docs/PROTOCOL.md) defines the Markdown record format, ownership rules, receipt hashes, and remaining commands. Legacy migration is explicit:
-
-```sh
-node src/migrate.mjs /path/to/repository
-```
-
-It retains original source files, marks imports `untriaged`, and disables duplicate legacy display. It does not infer completion or reply relationships. Set participant aliases and the import offset before migration.
-
+The CLI writes files but never stages, commits, or pushes them. [PROTOCOL.md](docs/PROTOCOL.md) defines the Markdown record format, ownership rules, receipt hashes, and remaining commands.
 ## Validation in CI
 
 SAGA's own CI validates its synthetic example and runs the test suite. For a managed repository, see [the workflow template](examples/mailbox-validation.yml). During the private trial, checking out SAGA from another private repository requires a token with read access, stored as a CI secret. The template makes the source repository and revision explicit. For a public release, the same validation can run as the included composite action with a pinned release reference.

@@ -10,14 +10,12 @@
   "gitRemote": "origin",
   "expectedBranch": null,
   "timeZone": "UTC",
-  "importOffset": "+00:00",
   "defaultKind": "request",
   "defaultPriority": "normal",
   "defaultStatus": "open",
   "pageSize": 50,
   "defaultExpanded": 1,
   "historyLimit": 60,
-  "showLegacy": false,
   "showMonitoring": true,
   "confirmCleanup": true,
   "commitPrefix": "saga",
@@ -39,6 +37,5 @@
     }
   ],
   "mailboxDirectory": "mailboxes",
-  "legacyDirectory": null,
   "cleanup": "approval"
 }

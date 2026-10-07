@@ -9,7 +9,7 @@ Read the workspace's `exchange.config.json` for participant IDs and mailbox path
 
 The skill includes `scripts/cli.mjs`, `scripts/protocol.mjs`, and `scripts/preferences.mjs`. Invoke the CLI using this skill's actual location and an explicit `--root /path/to/workspace`; it needs Node.js 22+ and no packages. For example: `node <skill-directory>/scripts/cli.mjs list --root <workspace> --to <your-id>`.
 
-- At session start, inspect messages addressed to you. Read legacy inboxes only while `legacyDirectory` is configured. When it is null, structured records are the active source; retained originals are reference copies.
+- At session start, inspect messages addressed to you.
 - Write requests, reports, and replies only in your own outbox. Keep IDs stable and link replies with `reply_to`. Use `send` to format records.
 - Do not use decorative emojis in subjects, headings, bullets, status labels, or bodies. State progress, warnings, and questions in plain words; use metadata for status and priority. Preserve symbols only as technical content or necessary quotations.
 - After fully handling a received request, use `receipt <id> --from <your-id> --body-file <result-file>` with a concise result and evidence. The helper binds the receipt to the exact request version. For partial progress, send a reply; for a blocker, use outcome `blocked`. Never mark incomplete work `completed`.

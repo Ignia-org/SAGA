@@ -22,9 +22,7 @@ function renderSettings(c) {
     <section class="card panel"><h3>Workspace and participants</h3><div class="settings-grid">
       ${settingsField('title','Workspace name',c.title)}${settingsChoice('identity','Your identity',c.identity,c.participants.map(p=>[p.id,p.label]))}
       ${settingsField('mailboxDirectory','Mailbox directory',c.mailboxDirectory,'text','Repository-relative path. Existing workspaces require a valid directory; no silent data relocation.')}
-      ${settingsField('legacyDirectory','Legacy directory (optional)',c.legacyDirectory,'text','Leave blank to disable the legacy view.')}
       ${settingsField('timeZone','Display timezone',c.timeZone,'text','IANA name, e.g. UTC or Europe/Paris.')}
-      ${settingsField('importOffset','Offset for undated legacy times',c.importOffset,'text','Used only when importing date-only legacy messages, e.g. +02:00.')}
     </div><h4>Participants</h4><p class="hint">IDs stay stable. Rename display labels freely. Participants with existing mailbox files cannot be removed or have their ID renamed.</p>
       <div id="participantRows">${c.participants.map(participantRow).join('')}</div><button type="button" id="addParticipant">Add participant</button>
     </section>
@@ -32,7 +30,7 @@ function renderSettings(c) {
       ${settingsField('refreshSeconds','Interface refresh interval (seconds)',c.refreshSeconds,'number','0 means manual refresh. Otherwise at least 10 seconds.')}
       ${settingsField('pageSize','Messages per page',c.pageSize,'number')}${settingsField('defaultExpanded','Expanded messages per page',c.defaultExpanded,'number')}${settingsField('historyLimit','History commits to load',c.historyLimit,'number')}
       ${settingsChoice('defaultKind','Default message type',c.defaultKind,['request','question','decision','report','reply'].map(v=>[v,v]))}${settingsChoice('defaultPriority','Default priority',c.defaultPriority,priorities)}${settingsChoice('defaultStatus','Default message status',c.defaultStatus,statuses)}
-    </div>${settingsToggle('showLegacy','Show legacy exchanges by default',c.showLegacy)}${settingsToggle('showMonitoring','Show participant monitoring',c.showMonitoring)}</section>
+    </div>${settingsToggle('showMonitoring','Show participant monitoring',c.showMonitoring)}</section>
     <section class="card panel"><h3>Git automation</h3><p class="hint">A push publishes every ahead commit on the current branch. Existing staged edits and branch divergence stop automation.</p>
       ${settingsToggle('autoCommit','Commit dashboard writes automatically',c.autoCommit,'When disabled, SAGA saves files for you to commit manually.')}
       ${settingsToggle('autoPull','Pull automatically',c.autoPull)}${settingsToggle('autoPush','Push pending dashboard commits automatically',c.autoPush)}
@@ -48,10 +46,10 @@ function renderSettings(c) {
 }
 function collectSettings() {
   const settings = {};
-  for (const key of ['title','identity','mailboxDirectory','timeZone','importOffset','defaultKind','defaultPriority','defaultStatus','gitRemote','commitPrefix','cleanup']) settings[key]=$('setting-'+key).value.trim();
-  for (const key of ['legacyDirectory','expectedBranch']) settings[key]=$('setting-'+key).value.trim()||null;
+  for (const key of ['title','identity','mailboxDirectory','timeZone','defaultKind','defaultPriority','defaultStatus','gitRemote','commitPrefix','cleanup']) settings[key]=$('setting-'+key).value.trim();
+  for (const key of ['expectedBranch']) settings[key]=$('setting-'+key).value.trim()||null;
   for (const key of ['refreshSeconds','syncSeconds','cleanupSeconds','pageSize','defaultExpanded','historyLimit']) settings[key]=Number($('setting-'+key).value);
-  for (const key of ['autoCommit','autoPull','autoPush','syncOnStart','syncAfterWrite','showLegacy','showMonitoring','confirmCleanup']) settings[key]=$('setting-'+key).checked;
+  for (const key of ['autoCommit','autoPull','autoPush','syncOnStart','syncAfterWrite','showMonitoring','confirmCleanup']) settings[key]=$('setting-'+key).checked;
   settings.participants=[...document.querySelectorAll('#participantRows .participant-row')].map(row=>({id:row.querySelector('[data-participant="id"]').value.trim(),label:row.querySelector('[data-participant="label"]').value.trim(),aliases:row.querySelector('[data-participant="aliases"]').value.split(',').map(a=>a.trim()).filter(Boolean)}));
   return settings;
 }
