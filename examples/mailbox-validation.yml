@@ -1,0 +1,24 @@
+# Copy into the managed repository's .github/workflows directory.
+# Replace OWNER/SAGA and PINNED_REF. For the private trial, set SAGA_READ_TOKEN
+# to a token with read access to the SAGA source repository.
+name: Mailbox validation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: workspace
+      - uses: actions/checkout@v4
+        with:
+          repository: OWNER/SAGA
+          ref: PINNED_REF
+          token: ${{ secrets.SAGA_READ_TOKEN }}
+          path: saga
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node saga/src/cli.mjs validate --root workspace

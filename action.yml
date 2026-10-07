@@ -1,0 +1,15 @@
+name: Validate SAGA mailboxes
+description: Validate structured Markdown outboxes and completion receipts in a configured workspace.
+inputs:
+  workspace:
+    description: Path to the checked-out workspace repository
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Validate mailboxes
+      shell: bash
+      env:
+        SAGA_WORKSPACE: ${{ inputs.workspace }}
+      run: node "$GITHUB_ACTION_PATH/src/cli.mjs" validate --root "$SAGA_WORKSPACE"

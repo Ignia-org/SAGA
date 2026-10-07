@@ -1,0 +1,44 @@
+{
+  "refreshSeconds": 60,
+  "syncSeconds": 300,
+  "cleanupSeconds": 300,
+  "autoCommit": true,
+  "autoPull": false,
+  "autoPush": false,
+  "syncOnStart": false,
+  "syncAfterWrite": false,
+  "gitRemote": "origin",
+  "expectedBranch": null,
+  "timeZone": "UTC",
+  "importOffset": "+00:00",
+  "defaultKind": "request",
+  "defaultPriority": "normal",
+  "defaultStatus": "open",
+  "pageSize": 50,
+  "defaultExpanded": 1,
+  "historyLimit": 60,
+  "showLegacy": false,
+  "showMonitoring": true,
+  "confirmCleanup": true,
+  "commitPrefix": "saga",
+  "schema": 1,
+  "title": "Example workspace",
+  "identity": "operator",
+  "participants": [
+    {
+      "id": "operator",
+      "label": "Project owner"
+    },
+    {
+      "id": "contributor",
+      "label": "Contributor"
+    },
+    {
+      "id": "reviewer",
+      "label": "Reviewer"
+    }
+  ],
+  "mailboxDirectory": "mailboxes",
+  "legacyDirectory": null,
+  "cleanup": "approval"
+}

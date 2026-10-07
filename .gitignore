@@ -1,0 +1,3 @@
+.saga/
+node_modules/
+*.log

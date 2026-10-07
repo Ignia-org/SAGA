@@ -1,0 +1,2 @@
+# Completion receipts: operator
+

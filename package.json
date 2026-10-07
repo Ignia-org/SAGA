@@ -1,0 +1,15 @@
+{
+  "name": "saga-agent-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A reusable local dashboard for agent mailboxes and completion receipts.",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "demo": "node scripts/demo.mjs",
+    "test": "node --test test/exchange.test.mjs",
+    "validate": "node src/cli.mjs validate",
+    "bundle-skill": "node scripts/bundle-skill.mjs"
+  },
+  "engines": { "node": ">=22" }
+}
