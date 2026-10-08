@@ -17,7 +17,7 @@ export async function createDashboard(root, options = {}) {
   const pdfTickets = new Map();
   const sync = { state: 'idle', message: 'Ready', last: null };
   const git = (...args) => exec('git', args, { cwd: root, timeout: 30000, maxBuffer: 8e6, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).then(r => r.stdout.trim());
-  const locked = fn => { const job = queue.then(fn); queue = job.catch(() => {}); return job; };
+  const locked = fn => { const job = queue.then(() => fn()); queue = job.catch(() => {}); return job; };
   const read = async relative => readFile(await safePath(root, relative), 'utf8').catch(e => { if (e.code === 'ENOENT') return null; throw e; });
   async function pendingBranch() { return git('config', '--local', '--get', 'saga.pendingBranch').catch(() => git('config', '--local', '--get', 'dashboard.pendingBranch').catch(() => '')); }
   async function publicationHeld() { return (await git('config', '--local', '--get', 'saga.publicationHold').catch(() => '') === 'true') || (await git('config', '--local', '--get', 'dashboard.publicationHold').catch(() => '') === 'true'); }
@@ -303,6 +303,7 @@ export async function createDashboard(root, options = {}) {
       }));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
       const result = await locked(async () => {
+        const actionResult = await (async () => {
         if (url.pathname === '/api/branches') {
           const config = await loadConfig(root);
           if (data.fetch === true) await fetchBranchUpdates();
@@ -345,8 +346,15 @@ export async function createDashboard(root, options = {}) {
           configureSchedule(config); return { ok: true };
         }
         throw new Error('Unknown action');
+        })();
+        const writes = ['/api/message', '/api/update', '/api/receipt-dismiss', '/api/cleanup', '/api/settings'];
+        if (writes.includes(url.pathname) && !options.noSync) {
+          const config = await loadConfig(root);
+          if (config.autoPush || (config.autoPull && config.syncAfterWrite)) await synchronize();
+        }
+        return { ...actionResult, sync: { ...sync } };
       });
-      send(200, result); if (!options.noSync) { const config = await loadConfig(root); if (config.syncAfterWrite && (config.autoPush || config.autoPull)) locked(synchronize); }
+      send(200, result);
     } catch (e) { send(409, { error: e.message }); }
   });
   let timer, scheduleKey = '', nextSync = Infinity, nextCleanup = Infinity, nextBranches = Infinity;
@@ -367,7 +375,7 @@ export async function createDashboard(root, options = {}) {
       if (Date.now() >= nextSync) { nextSync = Date.now() + config.syncSeconds * 1000; await synchronize(); }
       if (Date.now() >= nextCleanup) {
         nextCleanup = config.cleanup === 'automatic' ? Date.now() + config.cleanupSeconds * 1000 : Infinity;
-        if (config.cleanup === 'automatic') { const count = await clean(); if (count && config.syncAfterWrite) await synchronize(); }
+        if (config.cleanup === 'automatic') { const count = await clean(); if (count && (config.autoPush || config.syncAfterWrite)) await synchronize(); }
       }
     }).catch(e => { sync.state = 'error'; sync.message = e.message; }).finally(arm), Math.max(1000, due - Date.now())); timer.unref();
   }

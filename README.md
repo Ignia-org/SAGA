@@ -185,7 +185,7 @@ Workspace settings are stored in `exchange.config.json` in the managed repositor
 | Branch discovery | Enabled | Discovers local and remote Git branches without a list |
 | Automatic branch fetch | Disabled | Independently refreshes all remote branches |
 | Branch fetch interval | 5 minutes | Configurable from 1 to 1440 minutes |
-| Sync on startup / after writes | Disabled | Explicit switches |
+| Sync on startup / after writes | Disabled | After-write switch controls pull synchronization; automatic push always follows a save |
 | Remote / required branch | `origin` / unrestricted | Optional branch guard |
 | Cleanup | Review required | Automatic or disabled are also available |
 | Receipt scan interval | 300 seconds | Runs only in automatic cleanup mode |
@@ -200,7 +200,7 @@ Identity, participant IDs/labels/aliases, mailbox directory, and monitoring visi
 
 **Refresh** only rereads files. **Sync now** follows your configured pull/push switches. Settings also offers explicit **Pull now** and **Push pending commits** actions. Automatic cleanup requires automatic commits so its history is retained. With manual commits, SAGA saves edits to disk and leaves committing to you.
 
-Git operations stop for staged work, dirty files, mismatched branches, or divergence. SAGA does not stash, reset, merge, or rebase automatically. A push publishes all ahead commits on that branch. Publication holds in local Git config (`saga.publicationHold`, with compatibility for `dashboard.publicationHold`) remain effective independently of UI settings. Pending publication is tied to its originating branch.
+Git operations stop for staged work, dirty files, mismatched branches, or divergence. SAGA does not stash, reset, merge, or rebase automatically. Automatic push publishes after each dashboard save, including the configuration commit that enables it, regardless of the after-write pull switch. The save response waits for that publication attempt and reports any failure without losing the saved message. A push publishes all ahead commits on that branch. Publication holds in local Git config (`saga.publicationHold`, with compatibility for `dashboard.publicationHold`) remain effective independently of UI settings. Pending publication is tied to its originating branch.
 
 ## Agent skill
 

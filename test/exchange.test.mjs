@@ -293,3 +293,16 @@ test('participant directory reads current responsibilities independently of mail
   await run(['participants','--root',f.root,'--id','reviewer'],value=>output=JSON.parse(value));assert.equal(output[0].role,updated[2].role);assert.equal(output[0].reportTo,'coordinator');
  }finally{if(app)await app.stop();await f.dispose();}
 });
+
+test('automatic push publishes the enabling settings commit and later messages despite disabled after-write sync', async () => {
+ const f=await fixture();let app;
+ try{
+  const c={...config(),autoPush:false,autoPull:false,syncAfterWrite:false,syncSeconds:0};await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify(c));git(f.root,'add','.');git(f.root,'commit','-m','manual settings');
+  const remote=path.join(f.temp,'remote.git');git(f.temp,'init','--bare',remote);git(f.root,'remote','add','origin',remote);git(f.root,'push','-u','origin','HEAD');
+  app=await createDashboard(f.root);await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+app.server.address().port;
+  const call=async(route,data)=>{const response=await fetch(base+'/api/'+route,{method:data?'POST':'GET',headers:{'X-Dashboard-Token':app.token,'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined});assert.equal(response.status,200);return response.json();};
+  let state=await call('state');const saved=await call('settings',{version:state.configVersion,settings:{autoPush:true}});assert.equal(saved.sync.state,'ok');assert.equal(git(remote,'rev-parse','HEAD'),git(f.root,'rev-parse','HEAD'));
+  state=await call('state');const sent=await call('message',{to:'researcher',title:'Review export formulas',text:'Check a sample export and report the observed result.',version:state.outboxVersion});assert.ok(sent.id);assert.equal(sent.sync.state,'ok');assert.equal(git(remote,'rev-parse','HEAD'),git(f.root,'rev-parse','HEAD'));assert.equal((await call('state')).git.ahead,0);
+  git(f.root,'remote','set-url','origin',path.join(f.temp,'missing-remote'));state=await call('state');const failed=await call('message',{to:'researcher',title:'Check date values',text:'Compare exported dates with the source.',version:state.outboxVersion});assert.ok(failed.id);assert.equal(failed.sync.state,'error');assert.ok((await call('state')).messages.some(r=>r.meta.id===failed.id));
+ }finally{if(app)await new Promise(resolve=>app.server.close(resolve));await f.dispose();}
+});

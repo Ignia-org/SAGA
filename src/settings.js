@@ -34,7 +34,7 @@ function renderSettings(c) {
     <section class="card panel"><h3>Git automation</h3><p class="hint">A push publishes every ahead commit on the current branch. Existing staged edits and branch divergence stop automation.</p>
       ${settingsToggle('autoCommit','Commit dashboard writes automatically',c.autoCommit,'When disabled, SAGA saves files for you to commit manually.')}
       ${settingsToggle('autoPull','Pull automatically',c.autoPull)}${settingsToggle('autoPush','Push pending dashboard commits automatically',c.autoPush)}
-      ${settingsToggle('syncOnStart','Synchronize when SAGA starts',c.syncOnStart)}${settingsToggle('syncAfterWrite','Synchronize after a write',c.syncAfterWrite)}
+      ${settingsToggle('syncOnStart','Synchronize when SAGA starts',c.syncOnStart)}${settingsToggle('syncAfterWrite','Synchronize after a write',c.syncAfterWrite,'Automatic push always runs after saving. This switch also synchronizes automatic pulls after writes.')}
       <div class="settings-grid">${settingsField('syncMinutes','Git synchronization interval (minutes)',c.syncSeconds/60,'number','0 disables scheduled Git. Pull applies to the active branch.').replace('step="1"','step="any"')}${settingsField('gitRemote','Git remote',c.gitRemote)}${settingsField('expectedBranch','Required branch (optional)',c.expectedBranch,'text','Leave blank to use the currently checked-out branch.')}${settingsField('commitPrefix','Commit message prefix',c.commitPrefix)}</div>
       <div class="actions"><button id="pullNow" type="button">Pull now</button><button id="pushNow" type="button">Push pending commits</button></div>
     </section>
