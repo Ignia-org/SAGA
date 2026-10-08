@@ -8,7 +8,7 @@ import { Script } from 'node:vm';
 import { createDashboard } from '../src/server.mjs';
 import { run } from '../src/cli.mjs';
 import { defaults } from '../src/preferences.mjs';
-import { loadConfig, readStore, mailboxText, serializeRecord, parseMailbox, cleanupCandidates, recordHash, validateConfig } from '../src/protocol.mjs';
+import { loadConfig, readStore, mailboxText, serializeRecord, parseMailbox, cleanupCandidates, recordHash, validateConfig, validateRecord } from '../src/protocol.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const config = () => ({ schema: 1, title: 'Reusable workspace', identity: 'coordinator', participants: ['coordinator', 'researcher', 'reviewer'].map(id => ({ id, label: id })), mailboxDirectory: 'mailboxes', cleanup: 'approval', syncSeconds: 60, autoPull: true, autoPush: true, syncAfterWrite: true, commitPrefix: 'exchange' });
@@ -256,5 +256,22 @@ test('repository file previews authenticate and preserve Git state', async () =>
   assert.equal((await app.call('file',{path:'docs/Résumé notes.md',branch:'other'})).status,409);
   assert.equal((await app.call('file',{path:'docs/Résumé notes.md'},{'X-Dashboard-Token':''})).status,403);assert.equal((await fetch(app.base+'/files/pdf/invalid')).status,404);
   assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.equal(git(f.root,'status','--porcelain'),before);
+ }finally{if(app)await app.stop();await f.dispose();}
+});
+
+test('optional session references survive CLI writes, edits and receipts and affect hashes', async () => {
+ const f=await fixture();let app;
+ try {
+  const body=path.join(f.temp,'report.md');await writeFile(body,'CSV export preserves formulas. Checked a sample export. Date formatting remains unchanged.');
+  await run(['send','--root',f.root,'--from','researcher','--to','coordinator','--kind','report','--session','163h','--title','CSV export preserves formulas; date formatting remains unchanged','--body-file',body],()=>{});
+  const store=await readStore(f.root,await loadConfig(f.root)),report=store.messages[0];assert.equal(report.meta.session,'163h');assert.notEqual(recordHash(report.meta,report.body),recordHash({...report.meta,session:'164'},report.body));
+  const noSession={...report.meta};delete noSession.session;assert.doesNotThrow(()=>validateRecord(noSession,report.body,config()));
+  for(const session of ['',42,null,'run with spaces','x'.repeat(65)])assert.throws(()=>validateRecord({...report.meta,session},report.body,config()),/session/);
+  assert.throws(()=>validateRecord({...report.meta,other:'unknown'},report.body,config()),/Unknown/);
+  await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify({...config(),identity:'researcher'}));git(f.root,'add','.');git(f.root,'commit','-m','report');app=await start(f.root);
+  assert.equal((await app.call('update',{id:report.meta.id,sha256:report.sha256,text:'CSV formulas were verified; dates remain unchanged.'})).status,200);
+  assert.equal((await app.state()).messages.find(r=>r.meta.id===report.meta.id).meta.session,'163h');
+  await run(['receipt',report.meta.id,'--root',f.root,'--from','coordinator','--session','7','--body-file',body],()=>{});
+  const updated=await readStore(f.root,await loadConfig(f.root));assert.equal(updated.errors.length,0);assert.equal(updated.messages.find(r=>r.meta.kind==='receipt').meta.session,'7');
  }finally{if(app)await app.stop();await f.dispose();}
 });

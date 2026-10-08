@@ -179,6 +179,7 @@ export async function createDashboard(root, options = {}) {
     if ((old === null ? null : hash(old)) !== data.version) throw new Error('Your outbox changed. Refresh before sending.');
     if (data.reply_to && !store.messages.some(m => m.meta.id === data.reply_to && m.meta.to === config.identity && m.meta.from === data.to && m.meta.kind !== 'receipt')) throw new Error('Reply target must be an incoming message from this recipient.');
     const meta = { schema: 1, id: 'm-' + randomUUID(), from: config.identity, to: data.to, kind: data.kind || config.defaultKind, status: config.defaultStatus, priority: data.priority || config.defaultPriority, created: new Date().toISOString(), title: data.title, reply_to: data.reply_to || null };
+    if (data.session !== undefined) meta.session = data.session;
     if (meta.kind === 'receipt') throw new Error('Agents write receipts directly; use a reply here.');
     if (typeof data.text !== 'string') throw new Error('Message body must be text.'); validateRecord(meta, data.text, config);
     const records = store.files.find(f => f.relative === relative)?.records || [];

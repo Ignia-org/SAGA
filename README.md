@@ -9,7 +9,7 @@ The project is in an early trial. The interface uses the name **SAGA**; workspac
 Requires **Node.js 22+** and **Git**. There are no runtime packages to install.
 
 ```sh
-git clone <SAGA-repository-url> SAGA
+git clone https://github.com/Ignia-org/SAGA.git SAGA
 cd SAGA
 npm start
 ```
@@ -23,6 +23,58 @@ npm start -- /path/to/your/repository
 ```
 
 On Windows, double-click `Start.cmd`. Keep the terminal open. Set the `PORT` environment variable to use a different listening port. Repository selection and settings changes do not require a restart; changing the listening port does.
+
+## Getting started
+
+Give each agent a stable participant ID and a role with a bounded responsibility, such as researcher or reviewer. Keep its role instructions and current priorities in a dedicated Git repository for communication and internal documentation. Each scheduled run reads those documents and its incoming messages, does useful work within its role, then publishes a factual report and separate requests. SAGA is your dashboard over that repository; the agent platform runs and schedules the agents.
+
+### Prepare the shared repository
+
+Create and clone your own communication repository, separate from the SAGA checkout and any application source repository. Initialize it from SAGA:
+
+~~~sh
+node src/cli.mjs init --root /path/to/team-docs --identity operator --participants operator,researcher,reviewer --title "Team workspace"
+~~~
+
+Add short role documents such as `roles/researcher.md` and a priorities document, then commit and push the configuration, mailboxes, and documents. Open this repository in SAGA. Choose your refresh and Git intervals in Settings; enable automatic pull and push if you want messages synchronized without manual publication.
+
+Install the portable skill in the communication repository for your platform, using the commands below. Commit that copy so agent environments receive the helpers and protocol without needing access to SAGA itself. A copied skill is updated explicitly, not automatically.
+
+### ChatGPT / Codex
+
+Use a local project in the ChatGPT desktop app's Work/Codex environment with access to the communication checkout, Node.js 22+, Git, and the repositories required by the role. Install the repository skill from SAGA:
+
+~~~sh
+node src/cli.mjs install-skill --root /path/to/team-docs --destination .agents/skills/saga-mailbox
+~~~
+
+Codex discovers repository skills under `.agents/skills`. Add one short instruction in `AGENTS.md` to use `saga-mailbox` for exchanges. Start one chat per role and test the prompt below. [OpenAI skill setup](https://learn.chatgpt.com/docs/build-skills).
+
+Ask the app to schedule that role's prompt at your chosen cadence, or configure it in Scheduled. Select the local project and give it the required repository access. Local runs need the computer awake and the app running. Web-only scheduled chats cannot directly edit your local checkout; use a configured execution environment for this file-based workflow. [OpenAI scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app).
+
+### Claude
+
+Use Claude Code in Desktop's Code tab or its CLI, with the communication repository as the working folder and any role-specific repositories available. Install the same skill in Claude's project directory:
+
+~~~sh
+node src/cli.mjs install-skill --root /path/to/team-docs --destination .claude/skills/saga-mailbox
+~~~
+
+Add one instruction in `CLAUDE.md` to use `saga-mailbox` for exchanges. Start a role session and test the prompt below. Claude Code loads project skills from `.claude/skills`. [Claude skill setup](https://code.claude.com/docs/en/skills).
+
+In Desktop's Code tab, create a local scheduled task in Routines with that prompt, working folder, and cadence. Test Run now and configure the file, command, and Git permissions needed for unattended runs. The computer must be awake and the app open. For short-lived CLI polling, `/loop 1h <role prompt>` repeats work while the session is running. [Claude Desktop scheduling](https://code.claude.com/docs/en/desktop-scheduled-tasks), [CLI scheduling](https://code.claude.com/docs/en/scheduled-tasks).
+
+### Minimal role prompt
+
+~~~text
+You are researcher. Read roles/researcher.md and priorities.md in /path/to/team-docs.
+Use saga-mailbox for communication as researcher; report to operator.
+Handle incoming work and continue the role's priorities. Follow the role's scope and Git policy.
+~~~
+
+Use the same prompt in either platform; load the installed skill by name or give its `SKILL.md` path if it is not discovered. Specify commit/push authorization and the target branch in the role document once, rather than repeating the mailbox protocol in every prompt. Session references are optional; supply one when your scheduler already assigns it.
+
+Each agent should use its own checkout of the communication repository. Start with one shared communication branch and stagger scheduled runs. Pull before reading, validate before committing, and publish only your own changes under the role's Git policy. Stop and report dirty-checkout or divergence problems instead of resetting another participant's work. Worktrees and cloud clones need an explicit publication path: SAGA displays files in its selected checkout, not every isolated run's working copy. Review the first few runs before increasing frequency.
 
 ## Try the example
 
@@ -110,10 +162,10 @@ The compact branch indicator beside the active branch opens a popover listing in
 
 ## Validation in CI
 
-SAGA's own CI validates its synthetic example and runs the test suite. For a managed repository, see [the workflow template](examples/mailbox-validation.yml). During the private trial, checking out SAGA from another private repository requires a token with read access, stored as a CI secret. The template makes the source repository and revision explicit. For a public release, the same validation can run as the included composite action with a pinned release reference.
+SAGA's own CI validates its synthetic example and runs the test suite. For a managed repository, see [the workflow template](examples/mailbox-validation.yml). SAGA is public, so the workflow can check out its pinned revision using the normal checkout token. The template makes the source repository and revision explicit. The included composite action can also validate your workspace directly. Update the pinned validator when adopting new protocol fields such as `session`.
 
 ```yaml
-- uses: OWNER/SAGA@PINNED_REF
+- uses: Ignia-org/SAGA@PINNED_REF
   with:
     workspace: .
 ```

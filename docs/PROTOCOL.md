@@ -42,7 +42,7 @@ Files have one optional H1 header and zero or more delimited records. Metadata i
 <!-- /exchange -->
 ````
 
-IDs must be globally unique lowercase slugs of up to 64 characters. Keep the ID stable when editing a message. `kind`: `request`, `question`, `decision`, `report`, `reply`, `receipt`. `status`: `untriaged`, `open`, `in_progress`, `waiting`, `blocked`, `done`. `priority`: `low`, `normal`, `high`, `urgent`. `created`: ISO timestamp including timezone. `title`: one line, at most 200 characters. `reply_to`: incoming message ID or null. Do not add unknown metadata fields or use the record delimiters in message bodies.
+IDs must be globally unique lowercase slugs of up to 64 characters. Keep the ID stable when editing a message. `kind`: `request`, `question`, `decision`, `report`, `reply`, `receipt`. `status`: `untriaged`, `open`, `in_progress`, `waiting`, `blocked`, `done`. `priority`: `low`, `normal`, `high`, `urgent`. `created`: ISO timestamp including timezone. `title`: one line, at most 200 characters. `reply_to`: incoming message ID or null. Optional `session`: a sender-scoped session/run reference as a string of 1–64 letters, digits, dots, underscores, or hyphens, starting with a letter or digit (for example `"42"` or `"163h"`). Omit it when no reference was assigned; old records need no migration. It is displayed separately from the title and included in the record hash. Do not add unknown metadata fields or use the record delimiters in message bodies.
 
 Use plain words rather than decorative emojis in new subjects, headings, bullets, and bodies.
 
@@ -50,9 +50,11 @@ Use plain words rather than decorative emojis in new subjects, headings, bullets
 
 At session end, use a `report` record for completed work and findings. Use separate `request` or `question` records for actions or decisions needed from a recipient. One independent action per request allows its checklist, status, completion receipt, and cleanup to work independently. A heading inside a report does not create another record. The dashboard Requests view contains requests and questions sent by or addressed to the operator.
 
-Reports must be understandable to a reader who did not follow the session. Explain the concrete problem, the change or finding, the observed result, the verification performed, and remaining limits. Avoid ticket/session numbers, unexplained shorthand, vague problem labels, and session narratives. Put exact file paths, document sections, verification commands, or evidence links beside the claims they let a reader check. References supplement the explanation; they must not be required to understand it.
+Reports must be understandable to a reader who did not follow the session. Explain the concrete problem, the change or finding, the observed result, the verification performed, and remaining limits. Do not use ticket/session numbers instead of explaining the work. Keep session references in metadata. Avoid unexplained shorthand, vague problem labels, and chronological session narratives. Put exact file paths, document sections, verification commands, or evidence links beside the claims they let a reader check. References supplement the explanation; they must not be required to understand it.
 
 Each request is independently understandable: state the action or decision, the context necessary to act, and the expected result. Do not require the recipient to reconstruct its meaning from a report or another message.
+
+Titles name the concrete subject and result, limitation, or requested action so the reader can decide whether to open the message. Use sentence case without announcements, hype, decorative emphasis, or session bookkeeping. Write neutral factual prose, separate observations from proposals, and qualify completion claims by what was actually checked. The mailbox skill defines the shared writing guidance.
 
 ## Markdown display
 
@@ -75,7 +77,7 @@ Run these commands from the SAGA checkout and provide the workspace root explici
 ```sh
 node src/cli.mjs validate --root /path/to/workspace
 node src/cli.mjs list --to researcher --root /path/to/workspace
-node src/cli.mjs send --from researcher --to coordinator --kind report --title "Export behavior and verification" --body-file report.md --root /path/to/workspace
+node src/cli.mjs send --from researcher --to coordinator --kind report --session 42 --title "CSV export preserves formulas; date formatting remains unchanged" --body-file report.md --root /path/to/workspace
 node src/cli.mjs send --from researcher --to coordinator --kind request --title "Review the exported formulas" --body-file request.md --root /path/to/workspace
 node src/cli.mjs send --from researcher --to coordinator --kind reply --reply-to m-example-001 --title "Export result" --body-file result.md --root /path/to/workspace
 node src/cli.mjs receipt m-example-001 --from researcher --outcome completed --body-file result.md --root /path/to/workspace

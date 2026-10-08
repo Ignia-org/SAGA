@@ -49,7 +49,8 @@ export function validateRecord(meta, body, config, location) {
   if (typeof meta.created !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(meta.created) || Number.isNaN(Date.parse(meta.created))) fail('created must be an ISO timestamp with timezone.');
   if (meta.reply_to != null && (typeof meta.reply_to !== 'string' || !slug.test(meta.reply_to))) fail('reply_to must be a message ID or null.');
   if (!body.trim() || body.includes(START) || body.includes(END)) fail('Body cannot be empty or contain protocol delimiters.');
-  const allowed = ['schema', 'id', 'from', 'to', 'kind', 'status', 'priority', 'created', 'title', 'reply_to'];
+  if (meta.session !== undefined && (typeof meta.session !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(meta.session))) fail('session must be a short identifier using letters, digits, dots, underscores, or hyphens.');
+  const allowed = ['schema', 'id', 'from', 'to', 'kind', 'status', 'priority', 'created', 'title', 'reply_to', 'session'];
   if (meta.kind === 'receipt') {
     allowed.push('request_id', 'request_sha256', 'outcome');
     if (typeof meta.request_id !== 'string' || !slug.test(meta.request_id) || !/^[a-f0-9]{64}$/.test(meta.request_sha256) || !['completed', 'blocked', 'rejected'].includes(meta.outcome)) fail('Receipt requires request_id, request_sha256, and outcome.');

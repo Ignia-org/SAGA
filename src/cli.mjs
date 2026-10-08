@@ -50,6 +50,7 @@ export async function run(args, write = console.log) {
   if (!flags['body-file']) throw new Error('--body-file is required.');
   const body = await readFile(path.resolve(root, flags['body-file']), 'utf8');
   const meta = { schema: 1, id: 'm-' + randomUUID(), from: flags.from, to: flags.to, kind: flags.kind || 'request', status: 'open', priority: flags.priority || 'normal', created: new Date().toISOString(), title: flags.title, reply_to: flags['reply-to'] || null };
+  if (flags.session !== undefined) meta.session = flags.session;
   if (command === 'receipt') {
     const request = store.messages.find(r => r.meta.id === positional[0]);
     if (!request || request.meta.to !== flags.from || request.meta.kind === 'receipt') throw new Error('Receipt must acknowledge an existing message addressed to you.');
