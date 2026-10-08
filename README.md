@@ -129,3 +129,17 @@ node test/browser-check.mjs /path/to/playwright/index.js
 The optional browser check uses a temporary Git repository. Set `DASHBOARD_BROWSER_CHANNEL=msedge` to use installed Edge. Run `npm run bundle-skill` after changing CLI, protocol, preferences, or protocol documentation. Tests verify packaged helper behavior and settings policies.
 
 SAGA binds to `127.0.0.1` and protects API access with a session token and origin checks. It is a local application; identity is a workflow setting rather than multiuser authentication.
+
+### Referencing repository files
+
+Use Markdown links in message bodies:
+
+```md
+[Specification](repo:docs/specification.md)
+[Study](repo:research/study.pdf)
+[Notes](<repo:docs/meeting notes.md>)
+```
+
+Paths in messages start at the selected repository root; the explicit `repo:` prefix is optional. Markdown opens in a read-only dashboard preview. Links inside that preview resolve relative to the document directory unless prefixed with `repo:` or `/`. PDF opens in a new browser tab, where the reader can download it or open their preferred PDF application. Ordinary HTTPS links open externally.
+
+Only Git-tracked Markdown and PDF files inside the selected repository can be viewed; symbolic links are rejected. The preview reads the current working copy on the selected branch, including uncommitted changes. Limits are 2 MiB for Markdown and 25 MiB for PDF. Viewing a file does not commit or synchronize it. File references supplement a self-contained report rather than replacing its explanation.

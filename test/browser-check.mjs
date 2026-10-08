@@ -17,9 +17,10 @@ const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8'
 let app, browser;
 try {
   await mkdir(root);git('init');git('config','user.name','Test');git('config','user.email','test@example.com');
-  const config={schema:1,title:'Project control room',identity:'owner',participants:[{id:'owner',label:'Project owner'},{id:'worker',label:'Research team'},{id:'auditor',label:'Review team'}],mailboxDirectory:'mailboxes',cleanup:'approval',syncSeconds:60,refreshSeconds:10,defaultExpanded:2};
+  const config={schema:1,title:'Project control room',identity:'owner',participants:[{id:'owner',label:'Project owner'},{id:'worker',label:'Research team'},{id:'auditor',label:'Review team'}],mailboxDirectory:'mailboxes',cleanup:'approval',syncSeconds:60,refreshSeconds:120,defaultExpanded:2};
   await writeFile(path.join(root,'exchange.config.json'),JSON.stringify(config));
   for(const category of ['outboxes','receipts']){await mkdir(path.join(root,'mailboxes',category),{recursive:true});for(const p of config.participants)await writeFile(path.join(root,'mailboxes',category,p.id+'.md'),mailboxText(p.id,category,[]));}
+  await mkdir(path.join(root,'docs'));await writeFile(path.join(root,'docs','guide.md'),'# Guide\n\n[Details](details.md)\n\n- [ ] Read only');await writeFile(path.join(root,'docs','details.md'),'# Details');await writeFile(path.join(root,'docs','study.pdf'),'%PDF-1.4');
   git('add','.');git('commit','-m','initial');
   const baseBranch=git('branch','--show-current').trim();git('switch','-c','incoming');
   const incoming={meta:{schema:1,id:'m-branch-inbox',from:'worker',to:'owner',kind:'report',status:'open',priority:'normal',created:new Date().toISOString(),title:'Branch report',reply_to:null},body:'A report available on another branch.'};
@@ -29,6 +30,13 @@ try {
   await page.goto(`http://127.0.0.1:${app.server.address().port}`);
   await page.getByRole('heading',{name:'Inbox',exact:true}).waitFor();
   await page.getByLabel('Recipient',{exact:true}).selectOption('worker');
+  await page.locator('#message').fill('Unsaved draft');
+  await page.evaluate(()=>{const node=document.createElement('div');node.id='file-test';node.innerHTML=renderMarkdown('[Guide](repo:docs/guide.md) [PDF](docs/study.pdf)');document.body.append(node);});
+  await page.locator('#file-test').getByText('Guide',{exact:true}).click();await page.locator('#fileContent h1').filter({hasText:'Guide'}).waitFor();assert.equal(await page.locator('#fileContent input').isDisabled(),true);
+  await page.locator('#fileContent').getByText('Details',{exact:true}).click();await page.locator('#fileContent h1').filter({hasText:'Details'}).waitFor();await page.getByRole('button',{name:'Close preview'}).click();assert.equal(await page.locator('#message').inputValue(),'Unsaved draft');
+  const popupPromise=page.waitForEvent('popup');await page.locator('#file-test').getByText('PDF',{exact:true}).click();const popup=await popupPromise;await popup.waitForURL('**/files/pdf/**');await popup.close();await page.evaluate(()=>document.querySelector('#file-test').remove());
+  assert.equal(await page.evaluate(()=>fileReference('../escape.md')===null&&fileReference('javascript:alert(1)')===null&&fileReference('../guide.md',{path:'docs/nested/details.md'}).path==='docs/guide.md'),true);
+  await page.locator('#message').fill('');
   const markdown=await page.evaluate(()=>{
     const nl=String.fromCharCode(10),container=document.createElement('div');container.className='body';document.body.append(container);
     container.innerHTML=renderMarkdown(['A paragraph wrapped','for source readability.','','Second paragraph.'].join(nl));

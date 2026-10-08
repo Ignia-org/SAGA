@@ -92,3 +92,17 @@ node src/server.mjs /path/to/repository
 ```
 
 Commit the generated config and mailboxes before starting. Initialization never overwrites an existing configuration.
+
+### Referencing repository files
+
+Use Markdown links in message bodies:
+
+```md
+[Specification](repo:docs/specification.md)
+[Study](repo:research/study.pdf)
+[Notes](<repo:docs/meeting notes.md>)
+```
+
+Paths in messages start at the selected repository root; the explicit `repo:` prefix is optional. Markdown opens in a read-only dashboard preview. Links inside that preview resolve relative to the document directory unless prefixed with `repo:` or `/`. PDF opens in a new browser tab, where the reader can download it or open their preferred PDF application. Ordinary HTTPS links open externally.
+
+Only Git-tracked Markdown and PDF files inside the selected repository can be viewed; symbolic links are rejected. The preview reads the current working copy on the selected branch, including uncommitted changes. Limits are 2 MiB for Markdown and 25 MiB for PDF. Viewing a file does not commit or synchronize it. File references supplement a self-contained report rather than replacing its explanation.

@@ -1,5 +1,22 @@
+function fileReference(href, context = null) {
+  if (typeof href !== 'string') return null;
+  const explicit = href.startsWith('repo:');
+  if (explicit) href = href.slice(5);
+  else if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')) return null;
+  const hash = href.indexOf('#'), fragment = hash >= 0 ? href.slice(hash + 1) : '';
+  let value = hash >= 0 ? href.slice(0, hash) : href;
+  try { value = decodeURIComponent(value); } catch { return null; }
+  if (!value || /[\\<>:"|?*\x00-\x1f]/.test(value)) return null;
+  const parts = explicit || value.startsWith('/') || !context ? [] : context.path.split('/').slice(0, -1);
+  for (const segment of value.replace(/^\//, '').split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') { if (!parts.length) return null; parts.pop(); } else parts.push(segment);
+  }
+  const relative = parts.join('/');
+  return /\.(?:md|markdown|pdf)$/i.test(relative) ? { path: relative, fragment } : null;
+}
 /* Markdown bodies use standard soft breaks. Raw HTML is shown as text. */
-function renderMarkdown(text, record = null, editable = false) {
+function renderMarkdown(text, record = null, editable = false, context = null) {
   text = text.replace(/\r\n/g, '\n');
   const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const tokens = marked.lexer(text, { gfm: true, breaks: false });
@@ -29,6 +46,12 @@ function renderMarkdown(text, record = null, editable = false) {
     });
   });
   const renderer = new marked.Renderer();
+  const originalLink = renderer.link;
+  renderer.link = function (token) {
+    const file = fileReference(token.href, context);
+    if (!file) return originalLink.call(this, token);
+    return '<a href="#" data-file-path="' + escape(file.path) + '" data-file-fragment="' + escape(file.fragment) + '">' + this.parser.parseInline(token.tokens) + '</a>';
+  };
   renderer.html = token => escape(token.text);
   renderer.image = token => '<span class="image-reference">' + escape(token.text || 'Image') + '</span>';
   renderer.listitem = function (token) {
@@ -42,11 +65,12 @@ function renderMarkdown(text, record = null, editable = false) {
   const rendered = marked.parser(tokens, { gfm: true, breaks: false, renderer });
   const clean = DOMPurify.sanitize(rendered, {
     ALLOWED_TAGS: ['p','br','strong','em','del','code','pre','blockquote','ul','ol','li','hr','h1','h2','h3','h4','h5','h6','table','thead','tbody','tr','th','td','a','input','span'],
-    ALLOWED_ATTR: ['href','title','class','start','align','type','checked','disabled','aria-label','data-check','data-line'],
+    ALLOWED_ATTR: ['href','title','class','start','align','type','checked','disabled','aria-label','data-check','data-line','data-file-path','data-file-fragment'],
     ALLOW_DATA_ATTR: false
   });
   const template = document.createElement('template'); template.innerHTML = clean;
   for (const anchor of template.content.querySelectorAll('a')) {
+    if (anchor.hasAttribute('data-file-path')) continue;
     const href = anchor.getAttribute('href');
     if (!href || !/^(?:https?:|mailto:|#)/i.test(href)) anchor.removeAttribute('href');
     else { anchor.target = '_blank'; anchor.rel = 'noopener noreferrer'; }

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { readRepositoryFile } from './files.mjs';
 import { readFile, writeFile, realpath, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,7 @@ export const version = hash;
 export async function createDashboard(root, options = {}) {
   root = await realpath(root);
   const token = randomBytes(24).toString('hex'); let queue = Promise.resolve();
+  const pdfTickets = new Map();
   const sync = { state: 'idle', message: 'Ready', last: null };
   const git = (...args) => exec('git', args, { cwd: root, timeout: 30000, maxBuffer: 8e6, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).then(r => r.stdout.trim());
   const locked = fn => { const job = queue.then(fn); queue = job.catch(() => {}); return job; };
@@ -266,6 +268,12 @@ export async function createDashboard(root, options = {}) {
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
         return res.end(await readFile(path.join(here, 'settings.js'), 'utf8'));
       }
+      if (req.method === 'GET' && url.pathname.startsWith('/files/pdf/')) {
+        const ticket = url.pathname.slice('/files/pdf/'.length), file = pdfTickets.get(ticket);
+        if (!file || file.expires < Date.now()) { pdfTickets.delete(ticket); return send(404, { error: 'PDF link expired. Open the file from its message again.' }); }
+        res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': file.buffer.length, 'Content-Disposition': "inline; filename*=UTF-8''" + encodeURIComponent(file.name), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
+        return res.end(file.buffer);
+      }
       if (req.headers['x-dashboard-token'] !== token) return send(403, { error: 'Access denied' });
       if (req.method === 'GET' && url.pathname === '/api/state') return send(200, await locked(state));
       if (req.method !== 'POST') return send(404, { error: 'Not found' });
@@ -280,6 +288,18 @@ export async function createDashboard(root, options = {}) {
         }
         return synchronize(data.operation || 'configured');
       }).then(result => result.state === 'error' ? send(409, { ...result, error: result.message }) : send(200, result));
+      if (url.pathname === '/api/file') return send(200, await locked(async () => {
+        const branch = await git('branch', '--show-current');
+        if ((data.workspaceRoot && data.workspaceRoot !== root) || (data.branch && data.branch !== branch)) throw new Error('Repository or branch changed. Reopen the file from the current message.');
+        const file = await readRepositoryFile(root, data.path, git);
+        const result = { path: file.path, type: file.type, branch, workspaceRoot: root };
+        if (file.type === 'markdown') return { ...result, text: file.buffer.toString('utf8') };
+        for (const [key, value] of pdfTickets) if (value.expires < Date.now()) pdfTickets.delete(key);
+        while (pdfTickets.size >= 8) pdfTickets.delete(pdfTickets.keys().next().value);
+        const ticket = randomBytes(32).toString('hex');
+        pdfTickets.set(ticket, { buffer: file.buffer, name: path.basename(file.path), expires: Date.now() + 60000 });
+        return { ...result, url: '/files/pdf/' + ticket };
+      }));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
       const result = await locked(async () => {
         if (url.pathname === '/api/branches') {

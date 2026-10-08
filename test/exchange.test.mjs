@@ -242,3 +242,19 @@ test('sync errors reach the client and confirmed automatic push releases the hol
  assert.equal((await app.call('sync',{})).status,200);assert.equal((await app.state()).git.ahead,0);
  }finally{if(app)await app.stop();await f.dispose();}
 });
+
+test('repository file previews authenticate and preserve Git state', async () => {
+ const f=await fixture();let app;
+ try {
+  await mkdir(path.join(f.root,'docs'));
+  await writeFile(path.join(f.root,'docs','Résumé notes.md'),'# Notes');const pdf=Buffer.from('%PDF-1.4');await writeFile(path.join(f.root,'docs','study.pdf'),pdf);await writeFile(path.join(f.root,'docs','draft.md'),'Untracked');
+  git(f.root,'add','docs/Résumé notes.md','docs/study.pdf');git(f.root,'commit','-m','documents');
+  const before=git(f.root,'status','--porcelain'),head=git(f.root,'rev-parse','HEAD');app=await start(f.root);
+  const response=await app.call('file',{path:'docs/Résumé notes.md'});assert.equal(response.status,200);assert.equal((await response.json()).text,'# Notes');
+  const file=await(await app.call('file',{path:'docs/study.pdf'})).json(),download=await fetch(app.base+file.url);assert.equal(download.headers.get('content-type'),'application/pdf');assert.deepEqual(Buffer.from(await download.arrayBuffer()),pdf);
+  for(const target of ['../escape.md','.git/config','docs/draft.md','unrelated.txt','C:/secret.md','docs/../unrelated.md'])assert.equal((await app.call('file',{path:target})).status,409,target);
+  assert.equal((await app.call('file',{path:'docs/Résumé notes.md',branch:'other'})).status,409);
+  assert.equal((await app.call('file',{path:'docs/Résumé notes.md'},{'X-Dashboard-Token':''})).status,403);assert.equal((await fetch(app.base+'/files/pdf/invalid')).status,404);
+  assert.equal(git(f.root,'rev-parse','HEAD'),head);assert.equal(git(f.root,'status','--porcelain'),before);
+ }finally{if(app)await app.stop();await f.dispose();}
+});
