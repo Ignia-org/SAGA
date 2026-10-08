@@ -116,3 +116,20 @@ Use Markdown links in message bodies:
 Paths in messages start at the selected repository root; the explicit `repo:` prefix is optional. Markdown opens in a read-only dashboard preview. Links inside that preview resolve relative to the document directory unless prefixed with `repo:` or `/`. PDF opens in a new browser tab, where the reader can download it or open their preferred PDF application. Ordinary HTTPS links open externally.
 
 Only Git-tracked Markdown and PDF files inside the selected repository can be viewed; symbolic links are rejected. The preview reads the current working copy on the selected branch, including uncommitted changes. Limits are 2 MiB for Markdown and 25 MiB for PDF. Viewing a file does not commit or synchronize it. File references supplement a self-contained report rather than replacing its explanation.
+
+## Participant directory and routing
+
+Each participant has a stable `id` and display `label`. Optional `role` describes responsibilities in one or two sentences (maximum 1000 characters). Optional `reportTo` names another configured participant for routine session reports. These fields are editable in Settings; omissions are allowed without assigning implicit roles.
+
+~~~json
+{
+  "id": "reviewer",
+  "label": "Reviewer",
+  "role": "Reviews changes for correctness and identifies defects. Owns requests for independent verification.",
+  "reportTo": "coordinator"
+}
+~~~
+
+Keep the roster and coordination responsibilities in `exchange.config.json`. Detailed task scope and inbox priorities belong in each agent's own instructions; those instructions take precedence over directory routing defaults. Use `participants --root /path/to/workspace` (optionally `--id reviewer`) to retrieve the current directory as JSON without parsing mailbox bodies. Run the helper from the SAGA checkout or the installed skill's `scripts/cli.mjs`. Synchronizing Git is separate and follows the agent's existing policy.
+
+Route relevant requests, blockers, dependencies, and findings to their declared owners, rather than notifying everyone. The task's explicit reporting destination wins; otherwise use that participant's `reportTo`. Ambiguous ownership or a missing reporting contact needs clarification. Receipt and reply destinations remain determined by the original conversation. Updating the directory changes the routing guidance for all agents after they synchronize, without rewriting every prompt. It does not guarantee that every relevant message will be sent or grant additional execution authority. Participant removal still requires reconciling existing mailbox files and references, including `reportTo`.

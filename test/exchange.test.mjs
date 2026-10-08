@@ -276,3 +276,20 @@ test('optional session references survive CLI writes, edits and receipts and aff
   const updated=await readStore(f.root,await loadConfig(f.root));assert.equal(updated.errors.length,0);assert.equal(updated.messages.find(r=>r.meta.kind==='receipt').meta.session,'7');
  }finally{if(app)await app.stop();await f.dispose();}
 });
+
+test('participant directory reads current responsibilities independently of mailbox validity', async () => {
+ const f=await fixture();let app;
+ try{
+  const c=config();c.participants.find(p=>p.id==='reviewer').role='Reviews correctness and owns independent verification.';c.participants.find(p=>p.id==='reviewer').reportTo='coordinator';
+  await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify(c));git(f.root,'add','.');git(f.root,'commit','-m','directory');
+  let output;await run(['participants','--root',f.root],value=>output=JSON.parse(value));assert.equal(output.length,3);assert.equal(output.find(p=>p.id==='reviewer').reportTo,'coordinator');assert.equal(output.find(p=>p.id==='researcher').role,null);
+  await writeFile(path.join(f.root,'mailboxes/outboxes/researcher.md'),'Malformed mailbox');
+  await run(['participants','--root',f.root,'--id','reviewer'],value=>output=JSON.parse(value));assert.equal(output.length,1);assert.equal(output[0].role,c.participants[2].role);
+  await assert.rejects(()=>run(['participants','--root',f.root,'--id','missing'],()=>{}),/Unknown/);
+  for(const patch of [{role:''},{role:3},{role:'x'.repeat(1001)},{reportTo:'missing'},{reportTo:'reviewer'}]){const invalid=structuredClone(c);Object.assign(invalid.participants[2],patch);assert.throws(()=>validateConfig(invalid),/role|reportTo/);}
+  await writeFile(path.join(f.root,'mailboxes/outboxes/researcher.md'),mailboxText('researcher','outboxes',[]));app=await start(f.root);
+  const state=await app.state(),updated=structuredClone(c.participants);updated[2].role='Reviews fixes and checks regressions.';
+  const response=await app.call('settings',{version:state.configVersion,settings:{participants:updated}});assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
+  await run(['participants','--root',f.root,'--id','reviewer'],value=>output=JSON.parse(value));assert.equal(output[0].role,updated[2].role);assert.equal(output[0].reportTo,'coordinator');
+ }finally{if(app)await app.stop();await f.dispose();}
+});

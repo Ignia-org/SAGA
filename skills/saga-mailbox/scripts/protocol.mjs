@@ -16,12 +16,14 @@ export function validateConfig(c) {
   const ids = new Set(), aliases = new Set();
   for (const p of c.participants) {
     if (typeof p.id !== 'string' || !slug.test(p.id) || typeof p.label !== 'string' || !p.label.trim() || ids.has(p.id)) fail('Participant IDs must be unique lowercase slugs with labels.');
+    if (p.role !== undefined && (typeof p.role !== 'string' || p.role.length > 1000 || !p.role.trim())) fail('Participant role must be a nonempty description up to 1000 characters.');
     ids.add(p.id);
     if (p.aliases !== undefined && (!Array.isArray(p.aliases) || p.aliases.some(a => typeof a !== 'string' || !a))) fail('Aliases must be strings.');
     for (const a of new Set([p.id, ...(p.aliases || [])].map(a => a.toLowerCase()))) {
       if (aliases.has(a)) fail(`Ambiguous participant alias: ${a}`); aliases.add(a);
     }
   }
+  for (const p of c.participants) if (p.reportTo !== undefined && (!ids.has(p.reportTo) || p.reportTo === p.id)) fail('Participant reportTo must name another configured participant.');
   if (!ids.has(c.identity)) fail('Dashboard identity must be a configured participant.');
   for (const key of ['mailboxDirectory']) {
     if (typeof c[key] !== 'string' || !c[key] || path.isAbsolute(c[key]) || c[key].includes('\\') || c[key].split('/').some(s => !s || s === '.' || s === '..' || !/^[\w.-]+$/.test(s))) fail(`Unsafe ${key}. Use a repository-relative path.`);

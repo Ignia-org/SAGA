@@ -114,6 +114,64 @@ This creates a separate local Git repository under ignored `.saga/demo`, with sy
 
 Each sender owns their outbox. Recipients write completion receipts in a separate stream. Cleanup removes only the operator's matching request and its valid completion receipts; other participants remain responsible for their own outboxes. A receipt is the recipient's statement that the work is complete. SAGA does not independently verify the work.
 
+## Everyday interactions
+
+The screenshots use a synthetic workspace with a project owner, a researcher, and a reviewer. Names and roles are examples; your directory supplies your own participants.
+
+### Read an agent's report
+
+Open **Inbox**, add that agent using the participant filter, and expand a card whose title interests you. The card shows its sender, type, status, and optional session reference. A continuation such as `190a` remains separate from the original report.
+
+![Read a report with verification and remaining limits](docs/screenshots/read-report.png)
+
+A repository Markdown link opens a read-only preview without leaving the dashboard. PDF links open a separate tab. The message should explain the finding before requiring you to open a supporting file.
+
+![Preview a supporting Markdown document](docs/screenshots/file-preview.png)
+
+### Reply to a report
+
+Click **Reply** on the report. The composer selects the sender and links the answer to that message; write your response and choose **Send**. Your reply appears in **Your outbox**, while the recipient receives it through their next synchronized inbox read. You can keep the report visible while writing, or detach the composer with its expand-window icon.
+
+![Reply to the researcher alongside their report](docs/screenshots/reply.png)
+
+### Send an agent a task
+
+Choose the participant, write a concrete subject, and use type **request**. Describe the expected result and add Markdown checklist items (or use **+ Task**) for actions that need tracking. Set a priority where appropriate, then send. This example asks the reviewer to reproduce export checks in another reader.
+
+![Compose a request with a checklist and inspect your outbox](docs/screenshots/send-task.png)
+
+### Answer a blocking request
+
+Open **Requests** to see requests and questions sent by or addressed to you, apart from reports. Filter by a waiting or blocked status when useful. Expand the question and click **Reply** to state your decision. In this example, the owner accepts the default date format and specifies which acceptance check the reviewer should add. A reply does not by itself mark work completed or remove the original message; its owner closes it after the decision or work has been handled.
+
+![Answer a question awaiting a project decision](docs/screenshots/answer-request.png)
+
+### Combine filters
+
+Add several participants or statuses to accumulate filter chips. Alternatives within one category are combined with OR; participant and status categories are combined with AND. Here the inbox includes Research or Review, and only messages waiting for an answer. Remove a chip individually or choose **Clear filters**. Text search and **Tasks only** further narrow the current view. Messages remain ordered by creation time.
+
+![Combine participant and status filters](docs/screenshots/filters.png)
+
+### Review completion and clean up
+
+An agent that finishes your request writes a completion receipt tied to the exact message version. **Completion review** shows its result beside the original request. With review-based cleanup, choose **Approve and clean up** once satisfied; this consumes the matching receipt and removes your fulfilled request. A changed request or blocked receipt does not qualify. Git retains the history.
+
+![Review a completion receipt before cleaning up the request](docs/screenshots/completion-review.png)
+
+### Describe participants centrally
+
+In **Settings**, fill in each participant's **Role and responsibilities** in one or two sentences and optionally set a **Default report recipient ID**. The visible field labels distinguish the stable ID, display name, aliases, role, and reporting contact. Save settings to update the shared directory.
+
+Agents obtain it with `node <skill-directory>/scripts/cli.mjs participants --root <workspace>`. The skill uses declared responsibilities for relevant requests and findings, while each agent's prompt retains its own scope and inbox priorities. An explicit reporting recipient in the task takes precedence over the directory's default. This avoids copying every contact rule into every prompt; it does not require broadcasting every report.
+
+![Edit labeled participant identities, responsibilities, and reporting contacts](docs/screenshots/participant-directory.png)
+
+### Choose synchronization behavior
+
+**Refresh** rereads local files. In **Settings → Git automation**, choose automatic commits, pulls, pushes, startup/after-write sync, and the Git interval independently. **Send** saves the message locally; it reaches another checkout after publication and synchronization. Check the header's uncommitted/ahead indicators, or use **Push now** when publishing manually. The screenshot shows the defaults, with automatic pulls and pushes still off.
+
+![Configure Git publication and synchronization](docs/screenshots/git-settings.png)
+
 ## Settings and defaults
 
 Workspace settings are stored in `exchange.config.json` in the managed repository. The Settings form validates and applies changes immediately.
@@ -194,9 +252,10 @@ SAGA's own CI validates its synthetic example and runs the test suite. For a man
 npm test
 npm run bundle-skill
 node test/browser-check.mjs /path/to/playwright/index.js
+node scripts/readme-screenshots.mjs /path/to/playwright/index.js
 ```
 
-The optional browser check uses a temporary Git repository. Set `DASHBOARD_BROWSER_CHANNEL=msedge` to use installed Edge. Run `npm run bundle-skill` after changing CLI, protocol, preferences, or protocol documentation. Tests verify packaged helper behavior and settings policies.
+The optional browser check and README screenshot generator use temporary Git repositories with synthetic data. Screenshots are committed under `docs/screenshots`; regenerate them after relevant UI changes. Set `DASHBOARD_BROWSER_CHANNEL=msedge` to use installed Edge. Run `npm run bundle-skill` after changing CLI, protocol, preferences, or protocol documentation. Tests verify packaged helper behavior and settings policies.
 
 SAGA binds to `127.0.0.1` and protects API access with a session token and origin checks. It is a local application; identity is a workflow setting rather than multiuser authentication.
 
@@ -213,3 +272,20 @@ Use Markdown links in message bodies:
 Paths in messages start at the selected repository root; the explicit `repo:` prefix is optional. Markdown opens in a read-only dashboard preview. Links inside that preview resolve relative to the document directory unless prefixed with `repo:` or `/`. PDF opens in a new browser tab, where the reader can download it or open their preferred PDF application. Ordinary HTTPS links open externally.
 
 Only Git-tracked Markdown and PDF files inside the selected repository can be viewed; symbolic links are rejected. The preview reads the current working copy on the selected branch, including uncommitted changes. Limits are 2 MiB for Markdown and 25 MiB for PDF. Viewing a file does not commit or synchronize it. File references supplement a self-contained report rather than replacing its explanation.
+
+## Participant directory and routing
+
+Each participant has a stable `id` and display `label`. Optional `role` describes responsibilities in one or two sentences (maximum 1000 characters). Optional `reportTo` names another configured participant for routine session reports. These fields are editable in Settings; omissions are allowed without assigning implicit roles.
+
+~~~json
+{
+  "id": "reviewer",
+  "label": "Reviewer",
+  "role": "Reviews changes for correctness and identifies defects. Owns requests for independent verification.",
+  "reportTo": "coordinator"
+}
+~~~
+
+Keep the roster and coordination responsibilities in `exchange.config.json`. Detailed task scope and inbox priorities belong in each agent's own instructions; those instructions take precedence over directory routing defaults. Use `participants --root /path/to/workspace` (optionally `--id reviewer`) to retrieve the current directory as JSON without parsing mailbox bodies. Run the helper from the SAGA checkout or the installed skill's `scripts/cli.mjs`. Synchronizing Git is separate and follows the agent's existing policy.
+
+Route relevant requests, blockers, dependencies, and findings to their declared owners, rather than notifying everyone. The task's explicit reporting destination wins; otherwise use that participant's `reportTo`. Ambiguous ownership or a missing reporting contact needs clarification. Receipt and reply destinations remain determined by the original conversation. Updating the directory changes the routing guidance for all agents after they synchronize, without rewriting every prompt. It does not guarantee that every relevant message will be sent or grant additional execution authority. Participant removal still requires reconciling existing mailbox files and references, including `reportTo`.

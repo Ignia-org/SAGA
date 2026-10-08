@@ -30,14 +30,19 @@ export async function run(args, write = console.log) {
     }
     write('Initialized. Commit the configuration and mailboxes before starting the dashboard.'); return;
   }
-  const config = await loadConfig(root), store = await readStore(root, config);
+  const config = await loadConfig(root);
+  if (command === 'participants') {
+    if (flags.id && !config.participants.some(p => p.id === flags.id)) throw new Error('Unknown participant ID.');
+    write(JSON.stringify(config.participants.filter(p => !flags.id || p.id === flags.id).map(p => ({ id: p.id, label: p.label, aliases: p.aliases || [], role: p.role || null, reportTo: p.reportTo || null })), null, 2)); return;
+  }
+  const store = await readStore(root, config);
   if (store.errors.length) throw new Error(store.errors.join('\n'));
   if (command === 'validate') { write(`Valid: ${store.messages.length} records in ${store.files.length} structured mailboxes.`); return; }
   if (command === 'list') {
     const records = store.messages.filter(r => (!flags.to || r.meta.to === flags.to) && (!flags.from || r.meta.from === flags.from));
     write(JSON.stringify(records.map(r => ({ ...r.meta, sha256: r.sha256, body: r.body, file: r.file })), null, 2)); return;
   }
-  if (!['receipt', 'send', 'close'].includes(command)) throw new Error('Commands: init, validate, list, send, receipt, close. See PROTOCOL.md for arguments.');
+  if (!['receipt', 'send', 'close'].includes(command)) throw new Error('Commands: init, participants, validate, list, send, receipt, close. See PROTOCOL.md for arguments.');
   if (!config.participants.some(p => p.id === flags.from)) throw new Error('--from must be your configured participant ID.');
   if (command === 'close') {
     const r = store.messages.find(r => r.meta.id === positional[0]);

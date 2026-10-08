@@ -8,7 +8,7 @@ function settingsToggle(key, labelText, value, hint = '') {
   return `<label class="setting-toggle"><input id="setting-${key}" aria-label="${esc(labelText)}" type="checkbox" ${value?'checked':''}><span>${esc(labelText)}${hint?'<span class="hint">'+esc(hint)+'</span>':''}</span></label>`;
 }
 function participantRow(p = {id:'',label:'',aliases:[]}) {
-  return `<div class="participant-row"><input data-participant="id" aria-label="Participant ID" placeholder="ID" value="${esc(p.id)}"><input data-participant="label" aria-label="Participant label" placeholder="Display name" value="${esc(p.label)}"><input data-participant="aliases" aria-label="Participant aliases" placeholder="Aliases, comma separated" value="${esc((p.aliases||[]).join(', '))}"><button data-remove-participant type="button">Remove</button></div>`;
+  return `<div class="participant-row"><label class="participant-field">Participant ID<input data-participant="id" aria-label="Participant ID" placeholder="ID" value="${esc(p.id)}"></label><label class="participant-field">Display name<input data-participant="label" aria-label="Participant label" placeholder="Display name" value="${esc(p.label)}"></label><label class="participant-field">Aliases<input data-participant="aliases" aria-label="Participant aliases" placeholder="Aliases, comma separated" value="${esc((p.aliases||[]).join(', '))}"></label><button data-remove-participant type="button">Remove</button><label class="participant-field participant-wide">Role and responsibilities<textarea data-participant="role" aria-label="Participant role" placeholder="Responsibilities and decisions this participant owns" rows="2">${esc(p.role||'')}</textarea></label><label class="participant-field participant-wide">Default report recipient ID (optional)<input data-participant="reportTo" aria-label="Report recipient ID" placeholder="Another participant ID" value="${esc(p.reportTo||'')}"></label></div>`;
 }
 function renderSettings(c) {
   const modes=[['approval','Review before cleanup'],['automatic','Clean up after valid receipts'],['off','Disabled']];
@@ -23,7 +23,7 @@ function renderSettings(c) {
       ${settingsField('title','Workspace name',c.title)}${settingsChoice('identity','Your identity',c.identity,c.participants.map(p=>[p.id,p.label]))}
       ${settingsField('mailboxDirectory','Mailbox directory',c.mailboxDirectory,'text','Repository-relative path. Existing workspaces require a valid directory; no silent data relocation.')}
       ${settingsField('timeZone','Display timezone',c.timeZone,'text','IANA name, e.g. UTC or Europe/Paris.')}
-    </div><h4>Participants</h4><p class="hint">IDs stay stable. Rename display labels freely. Participants with existing mailbox files cannot be removed or have their ID renamed.</p>
+    </div><h4>Participants</h4><p class="hint">IDs stay stable. Rename display labels freely. Describe each role in one or two sentences so agents can route requests. Report recipient is optional and names another participant ID. Participants with existing mailbox files cannot be removed or have their ID renamed.</p>
       <div id="participantRows">${c.participants.map(participantRow).join('')}</div><button type="button" id="addParticipant">Add participant</button>
     </section>
     <section class="card panel"><h3>Refresh and presentation</h3><div class="settings-grid">
@@ -56,7 +56,7 @@ function collectSettings() {
   for (const key of ['refreshSeconds','branchFetchMinutes','cleanupSeconds','pageSize','defaultExpanded','historyLimit']) settings[key]=Number($('setting-'+key).value);
   for (const key of ['discoverBranches','autoFetchBranches','autoCommit','autoPull','autoPush','syncOnStart','syncAfterWrite','showMonitoring','confirmCleanup']) settings[key]=$('setting-'+key).checked;
   settings.syncSeconds=Math.round(Number($('setting-syncMinutes').value)*60);
-  settings.participants=[...document.querySelectorAll('#participantRows .participant-row')].map(row=>({id:row.querySelector('[data-participant="id"]').value.trim(),label:row.querySelector('[data-participant="label"]').value.trim(),aliases:row.querySelector('[data-participant="aliases"]').value.split(',').map(a=>a.trim()).filter(Boolean)}));
+  settings.participants=[...document.querySelectorAll('#participantRows .participant-row')].map(row=>({id:row.querySelector('[data-participant="id"]').value.trim(),label:row.querySelector('[data-participant="label"]').value.trim(),aliases:row.querySelector('[data-participant="aliases"]').value.split(',').map(a=>a.trim()).filter(Boolean),...(row.querySelector('[data-participant="role"]').value.trim()?{role:row.querySelector('[data-participant="role"]').value.trim()}:{}),...(row.querySelector('[data-participant="reportTo"]').value.trim()?{reportTo:row.querySelector('[data-participant="reportTo"]').value.trim()}:{})}));
   return settings;
 }
 function renderSetup() {

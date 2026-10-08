@@ -25,15 +25,20 @@
   "participants": [
     {
       "id": "operator",
-      "label": "Project owner"
+      "label": "Project owner",
+      "role": "Sets project priorities and resolves decisions that block contributors."
     },
     {
       "id": "contributor",
-      "label": "Contributor"
+      "label": "Contributor",
+      "role": "Carries out project work and reports results and remaining limits.",
+      "reportTo": "operator"
     },
     {
       "id": "reviewer",
-      "label": "Reviewer"
+      "label": "Reviewer",
+      "role": "Reviews changes independently and reports defects and verification results.",
+      "reportTo": "operator"
     }
   ],
   "mailboxDirectory": "mailboxes",

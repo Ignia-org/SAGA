@@ -9,7 +9,7 @@ Read the workspace's `exchange.config.json` for participant IDs and mailbox path
 
 The skill includes `scripts/cli.mjs`, `scripts/protocol.mjs`, and `scripts/preferences.mjs`. Invoke the CLI using this skill's actual location and an explicit `--root /path/to/workspace`; it needs Node.js 22+ and no packages. For example: `node <skill-directory>/scripts/cli.mjs list --root <workspace> --to <your-id>`.
 
-- At session start, inspect messages addressed to you.
+- At session start, refresh the repository under your existing Git policy, consult the participant directory, and inspect messages addressed to you.
 - Write requests, reports, and replies only in your own outbox. Keep IDs stable and link replies with `reply_to`. Use `send` to format records.
 - At the end of a session, send a `report` describing the work. Send each independent action or decision you need from someone else as a separate `request` or `question` record addressed to that person. A Requests heading inside a report does not create a request. Each request states the needed action, enough context to act, and the expected result; it must be understandable without opening the report.
 - Link supporting repository files with `[Specification](repo:docs/specification.md)` or `[Study](repo:research/study.pdf)`. Paths start at the repository root. For spaces, use `[Notes](<repo:docs/meeting notes.md>)`. Link Git-tracked files: Markdown previews inside SAGA; PDF opens externally. Keep the message understandable without opening these files.
@@ -20,6 +20,16 @@ The skill includes `scripts/cli.mjs`, `scripts/protocol.mjs`, and `scripts/prefe
 - You own cleanup of requests you sent. After reviewing completion, remove fulfilled requests with `close <id> --from <your-id>`. The dashboard handles only its configured operator's requests under the workspace's cleanup policy.
 - Record lasting decisions in a durable project document before removing their discussion. Git retains communication history; no Markdown archive is needed.
 - Run `validate --root <workspace>` before committing. The CLI writes files but does not commit or push; follow your task's existing Git authorization.
+
+## Participant discovery and routing
+
+Run `node <skill-directory>/scripts/cli.mjs participants --root <workspace>` at session start and again before sending if the roster may have changed. Add `--id <participant-id>` to inspect one entry. The JSON directory comes from `exchange.config.json` and includes IDs, labels, aliases, role descriptions, and optional `reportTo`. Missing descriptions mean unknown responsibilities; do not infer authority from a name or the dashboard identity.
+
+Your prompt defines your task, scope, inbox priorities, and any contact restrictions. The shared directory describes who handles which subjects. Unless your task says otherwise, direct a request, question, finding, or dependency to the participant whose declared responsibilities match it. A usual session report goes to the recipient assigned by your task, or your directory entry's `reportTo` if none is assigned. If neither exists, ask who should receive reports; do not automatically treat the dashboard operator as everyone's manager.
+
+Contact only participants who need to act, decide, or know something that affects their responsibilities. Do not broadcast every report or contact every participant on each run. For distinct actions owned by different people, write separate messages addressed to each owner. If several roles overlap and no decision owner is clear, seek clarification through the assigned reporting contact or the user. State the concrete routing uncertainty rather than sending duplicate requests. Directory descriptions guide coordination, not authority to expand the task or change project policy.
+
+Read incoming messages with `list --to <your-id>`. This is one virtual inbox aggregating all senders' outboxes; you do not need a separate inbox for each participant. Preserve task-specific priority/ignore rules. Receipts and replies for existing conversations return to the original sender, regardless of `reportTo`. Read the current directory instead of embedding a roster in every agent prompt, so changes take effect after repository synchronization.
 
 ## Titles and report writing
 
