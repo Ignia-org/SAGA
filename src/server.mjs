@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { defaults } from './preferences.mjs';
-import { hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidates, mailboxText, validateRecord } from './protocol.mjs';
+import { hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidates, mailboxText, parseMailbox, recordHash, validateRecord } from './protocol.mjs';
 
 const exec = promisify(execFile), here = path.dirname(fileURLToPath(import.meta.url));
 export const version = hash;
@@ -98,12 +98,62 @@ export async function createDashboard(root, options = {}) {
     } catch (e) { sync.state = 'error'; sync.message = e.stderr?.trim() || e.message; }
     return sync;
   }
+  let branchCacheKey = '', branchCache = [];
+  async function branchSnapshot(ref, operator) {
+    const config = validateConfig(JSON.parse(await git('show', ref + ':exchange.config.json')));
+    const messages = [];
+    for (const participant of config.participants) {
+      const text = await git('show', ref + ':' + config.mailboxDirectory + '/outboxes/' + participant.id + '.md');
+      for (const record of parseMailbox(text, config, 'outboxes/' + participant.id + '.md')) {
+        if (record.meta.to === operator && record.meta.kind !== 'receipt') messages.push({ ...record, sha256: recordHash(record.meta, record.body) });
+      }
+    }
+    return messages;
+  }
+  async function branchReferences(config) {
+    const text = await git('for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/', 'refs/remotes/' + config.gitRemote + '/');
+    return text.split('\n').filter(Boolean).map(line => { const [ref, sha] = line.split(' '); const remote = ref.startsWith('refs/remotes/'); return { ref, sha, remote, name: remote ? ref.slice(('refs/remotes/' + config.gitRemote + '/').length) : ref.slice('refs/heads/'.length) }; }).filter(b => b.name !== 'HEAD');
+  }
+  async function branches(config, store) {
+    const current = await git('branch', '--show-current'), references = await branchReferences(config);
+    const incoming = new Map(store.messages.filter(r => r.meta.to === config.identity && r.meta.kind !== 'receipt').map(r => [r.meta.id, r.sha256]));
+    const key = JSON.stringify([root, current, config.identity, config.gitRemote, references, [...incoming]]);
+    if (key === branchCacheKey) return branchCache;
+    const others = references.filter(b => !(b.name === current && !b.remote) && !references.some(x => x.ref !== b.ref && !x.remote && b.remote && x.name === b.name && x.sha === b.sha));
+    const result = [];
+    for (const branch of others) {
+      try { const records = await branchSnapshot(branch.ref, config.identity); result.push({ ...branch, newMessages: records.filter(r => !incoming.has(r.meta.id)).length, updatedMessages: records.filter(r => incoming.has(r.meta.id) && incoming.get(r.meta.id) !== r.sha256).length }); }
+      catch { result.push({ ...branch, error: 'No valid mailbox workspace' }); }
+    }
+    branchCacheKey = key; return branchCache = result;
+  }
+  async function switchBranch(data) {
+    const config = await loadConfig(root);
+    const branch = (await branchReferences(config)).find(b => b.ref === data.ref);
+    if (!branch) throw new Error('Unknown branch. Fetch and check branches first.');
+    if (await git('status', '--porcelain')) throw new Error('Commit or discard local file changes before switching branches.');
+    if (config.expectedBranch && config.expectedBranch !== branch.name) throw new Error('Settings require branch ' + config.expectedBranch + '.');
+    const targetConfig = validateConfig(JSON.parse(await git('show', branch.ref + ':exchange.config.json')));
+    if (targetConfig.expectedBranch && targetConfig.expectedBranch !== branch.name) throw new Error('Target workspace requires another branch.');
+    await branchSnapshot(branch.ref, targetConfig.identity);
+    if (await pendingBranch()) {
+      const status = await gitStatus(config); if (status.ahead === null || status.ahead > 0) throw new Error('Push pending dashboard commits before switching branches.');
+    }
+    if (branch.remote) {
+      const local = (await branchReferences(config)).find(b => !b.remote && b.name === branch.name);
+      if (local && local.sha !== branch.sha) throw new Error('Local branch differs from remote. Select the local branch and synchronize first.');
+      if (local) await git('switch', branch.name); else await git('switch', '--track', '-c', branch.name, branch.ref);
+    } else await git('switch', branch.name);
+    await git('config', '--local', '--unset', 'saga.pendingBranch').catch(() => {});
+    await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
+    configureSchedule(targetConfig, true); sync.state = 'idle'; sync.message = 'Switched to ' + branch.name; return { ok: true };
+  }
   async function state() {
     let config; try { config = await loadConfig(root); } catch (e) { if (e.code === 'ENOENT') return { setupRequired: true, workspaceRoot: root }; throw e; }
     configureSchedule(config);
     const store = await readStore(root, config);
     const outbox = await read(`${config.mailboxDirectory}/outboxes/${config.identity}.md`);
-    return { git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
+    return { branches: await branches(config, store), git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
   }
   async function message(data) {
     const config = await loadConfig(root), store = await readStore(root, config);
@@ -186,8 +236,12 @@ export async function createDashboard(root, options = {}) {
       if (!/^127\.0\.0\.1:\d+$/.test(req.headers.host || '')) return send(403, { error: 'Host denied' });
       const url = new URL(req.url, `http://${req.headers.host}`);
       if (req.method === 'GET' && url.pathname === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; frame-ancestors 'none'" });
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'" });
         return res.end((await readFile(path.join(here, 'dashboard.html'), 'utf8')).replace('__TOKEN__', token));
+      }
+      if (req.method === 'GET' && url.pathname === '/favicon.svg') {
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' });
+        return res.end(await readFile(path.join(here, 'favicon.svg'), 'utf8'));
       }
       if (req.method === 'GET' && url.pathname === '/settings.js') {
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -209,6 +263,12 @@ export async function createDashboard(root, options = {}) {
       }));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
       const result = await locked(async () => {
+        if (url.pathname === '/api/branches') {
+          const config = await loadConfig(root);
+          if (data.fetch === true) await git('fetch', '--prune', config.gitRemote);
+          return { branches: await branches(config, await readStore(root, config)) };
+        }
+        if (url.pathname === '/api/branch') return switchBranch(data);
         if (url.pathname === '/api/workspace') return openWorkspace(data);
         if (url.pathname === '/api/message') return { id: await message(data) };
         if (url.pathname === '/api/update') { await update(data); return { ok: true }; }

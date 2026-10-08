@@ -21,14 +21,33 @@ try {
   await writeFile(path.join(root,'exchange.config.json'),JSON.stringify(config));
   for(const category of ['outboxes','receipts']){await mkdir(path.join(root,'mailboxes',category),{recursive:true});for(const p of config.participants)await writeFile(path.join(root,'mailboxes',category,p.id+'.md'),mailboxText(p.id,category,[]));}
   git('add','.');git('commit','-m','initial');
+  const baseBranch=git('branch','--show-current').trim();git('switch','-c','incoming');
+  const incoming={meta:{schema:1,id:'m-branch-inbox',from:'worker',to:'owner',kind:'report',status:'open',priority:'normal',created:new Date().toISOString(),title:'Branch report',reply_to:null},body:'A report available on another branch.'};
+  await writeFile(path.join(root,'mailboxes/outboxes/worker.md'),mailboxText('worker','outboxes',[incoming]));git('add','.');git('commit','-m','branch report');git('switch',baseBranch);
   app=await createDashboard(root,{noSync:true});await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
   browser=await chromium.launch({headless:true,...(process.env.DASHBOARD_BROWSER_CHANNEL?{channel:process.env.DASHBOARD_BROWSER_CHANNEL}:{})});const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://127.0.0.1:${app.server.address().port}`);
   await page.getByRole('heading',{name:'Inbox',exact:true}).waitFor();
+  await page.getByLabel('Recipient',{exact:true}).selectOption('worker');await page.getByLabel('Subject',{exact:true}).fill('Unsent draft');await page.getByLabel('Message body',{exact:true}).fill('Keep this text when switching branches.');
+  await page.locator('#branchSummary').click();await page.locator('[data-switch-branch="refs/heads/incoming"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:'incoming'}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='');
+  await page.locator('[data-switch-branch="refs/heads/'+baseBranch+'"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:baseBranch}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='Keep this text when switching branches.');await page.locator('#branchSummary').click();
+
   await page.getByLabel('Recipient',{exact:true}).selectOption('worker');await page.getByLabel('Subject',{exact:true}).fill('Verify export');await page.getByLabel('Message body',{exact:true}).fill('- [ ] Verify formulas\n\n<script>alert("escaped")</script>');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   await page.getByRole('button',{name:'Your outbox',exact:true}).click();
   await page.locator('summary').filter({hasText:'Verify export'}).waitFor();
+  const summary=page.locator('summary').filter({hasText:'Verify export'});assert.equal((await summary.textContent()).includes('Project owner'),false);assert.equal((await summary.textContent()).includes('Research team'),true);
+  await page.getByLabel('Filter participant',{exact:true}).selectOption('worker');await page.getByLabel('Filter participant',{exact:true}).selectOption('auditor');assert.equal(await page.locator('#filterTags [data-filter="participant"]').count(),2);
+  await page.getByLabel('Filter status',{exact:true}).selectOption('open');await page.getByLabel('Filter status',{exact:true}).selectOption('blocked');assert.equal(await page.locator('#filterTags [data-filter="status"]').count(),2);
+  await page.getByRole('button',{name:'Clear filters',exact:true}).click();
+  await page.getByLabel('Subject',{exact:true}).fill('Follow-up draft');await page.getByLabel('Message body',{exact:true}).fill('Review the export alongside the request.\n\n- [ ] Check the remaining edge cases');
+  await page.getByRole('button',{name:'Float composer',exact:true}).click();assert.equal(await page.locator('#compose').evaluate(e=>getComputedStyle(e).position),'fixed');
+  const handle=await page.locator('#composeHandle h3').boundingBox();await page.mouse.move(handle.x+20,handle.y+10);await page.mouse.down();await page.mouse.move(handle.x-200,handle.y+40);await page.mouse.up();assert.ok(await page.locator('#compose').evaluate(e=>parseFloat(e.style.left)<window.innerWidth-660));
+  if(process.argv[3]){await mkdir(process.argv[3],{recursive:true});await page.screenshot({path:path.join(process.argv[3],'floating-composer.png'),fullPage:true});}
+  await page.getByRole('button',{name:'Dock composer',exact:true}).click();assert.match(await page.getByLabel('Message body',{exact:true}).inputValue(),/remaining edge cases/);
+  const refreshBox=await page.locator('#refreshButton').boundingBox(),pushBox=await page.locator('#pushHeader').boundingBox();assert.ok(Math.abs(refreshBox.y-pushBox.y)<2);
+  if(process.argv[3]){await mkdir(process.argv[3],{recursive:true});await page.screenshot({path:path.join(process.argv[3],'compact-outbox.png'),fullPage:true});}
+
   await page.getByRole('checkbox',{name:'Verify formulas',exact:true}).check();
   await page.waitForFunction(()=>document.querySelector('.task')?.classList.contains('done'));
   assert.equal(await page.locator('.body script').count(),0);

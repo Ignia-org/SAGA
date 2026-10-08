@@ -2,7 +2,7 @@
 
 A local dashboard for agent requests, replies, tasks, and completion receipts. SAGA reads Markdown files in a Git repository you choose. It runs separately from that repository, so the application can manage different projects without carrying their private conversations in its own source tree.
 
-The project is in a private trial. The interface uses the name **SAGA**; workspace names and participant labels are your own.
+The project is in an early trial. The interface uses the name **SAGA**; workspace names and participant labels are your own.
 
 ## Start
 
@@ -93,6 +93,14 @@ node src/cli.mjs receipt m-request-id --root /path/to/repository --from contribu
 
 The CLI writes files but never stages, commits, or pushes them. [PROTOCOL.md](docs/PROTOCOL.md) defines the Markdown record format, ownership rules, receipt hashes, and remaining commands.
 The header shows uncommitted file counts and commits ahead/behind the locally known remote branch. Refresh does not fetch Git; remote counts update when Git synchronizes. **Push now** publishes the current branch even for commits created outside SAGA. **Auto push** enables commits and synchronization after writes; an existing publication pause must first be released through an explicitly confirmed push.
+
+## Reading and writing
+
+Inbox cards show the sender; outbox cards show the recipient. Participant monitoring keeps both sides. Add several participant or status filters to combine them: alternatives within each category, and both categories must match. Remove individual filter chips or choose Clear filters.
+
+The composer stays alongside your inbox. Choose Float to detach it, drag its heading to move it, and resize its bottom corner on desktop. Choose Dock to restore the side panel. Drafts are stored separately for each repository, branch, and operator. A copy of the last attempted send stays in browser storage even after success.
+
+Branches lists incoming messages present or changed on other local and fetched remote branches. Fetch and check branches refreshes remote references. Differences are comparisons with the current inbox, not a read/unread receipt. Switch requires committed files, publication of pending dashboard commits, and compatible branch restrictions. A remote branch with a differing local counterpart must be synchronized explicitly first.
 
 ## Validation in CI
 

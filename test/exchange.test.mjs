@@ -199,3 +199,17 @@ test('Git indicators count edits and manual push publishes commits made outside 
  assert.equal((await app.state()).git.ahead,1);assert.equal((await app.synchronize('push')).state,'ok');assert.equal((await app.state()).git.ahead,0);
  }finally{if(app)await app.stop();await f.dispose();}
 });
+
+test('branch inbox differences and safe switching preserve local work',async()=>{
+ const f=await fixture();let app;try{
+ const original=git(f.root,'branch','--show-current');git(f.root,'checkout','-b','incoming');
+ const record={meta:meta('m-other-branch','researcher','coordinator'),body:'New incoming request on this branch.'};
+ await writeFile(path.join(f.root,'mailboxes/outboxes/researcher.md'),mailboxText('researcher','outboxes',[record]));git(f.root,'add','.');git(f.root,'commit','-m','branch message');git(f.root,'checkout',original);app=await start(f.root);
+ assert.equal((await app.state()).branches.find(b=>b.name==='incoming').newMessages,1);
+ await writeFile(path.join(f.root,'unrelated.txt'),'unfinished');assert.equal((await app.call('branch',{ref:'refs/heads/incoming'})).status,409);assert.equal(git(f.root,'branch','--show-current'),original);git(f.root,'restore','unrelated.txt');
+ assert.equal((await app.call('branch',{ref:'refs/heads/missing'})).status,409);
+ git(f.root,'config','saga.pendingBranch',original);assert.equal((await app.call('branch',{ref:'refs/heads/incoming'})).status,409);git(f.root,'config','--unset','saga.pendingBranch');
+ assert.equal((await app.call('branch',{ref:'refs/heads/incoming'})).status,200);assert.equal((await app.state()).messages[0].meta.id,'m-other-branch');
+ const favicon=await fetch(app.base+'/favicon.svg');assert.equal(favicon.status,200);assert.match(favicon.headers.get('content-type'),/svg/);
+ }finally{if(app)await app.stop();await f.dispose();}
+});
