@@ -49,7 +49,7 @@ export function validateRecord(meta, body, config, location) {
   if (typeof meta.created !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(meta.created) || Number.isNaN(Date.parse(meta.created))) fail('created must be an ISO timestamp with timezone.');
   if (meta.reply_to != null && (typeof meta.reply_to !== 'string' || !slug.test(meta.reply_to))) fail('reply_to must be a message ID or null.');
   if (!body.trim() || body.includes(START) || body.includes(END)) fail('Body cannot be empty or contain protocol delimiters.');
-  if (meta.session !== undefined && (typeof meta.session !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(meta.session))) fail('session must be a short identifier using letters, digits, dots, underscores, or hyphens.');
+  if (meta.session !== undefined && (typeof meta.session !== 'string' || (meta.session.length > 64 || !/^[1-9][0-9]*[a-z]*$/.test(meta.session)))) fail('session must be a positive integer string with an optional lowercase letter suffix, for example 190 or 190a (up to 64 characters, no leading zeros).');
   const allowed = ['schema', 'id', 'from', 'to', 'kind', 'status', 'priority', 'created', 'title', 'reply_to', 'session'];
   if (meta.kind === 'receipt') {
     allowed.push('request_id', 'request_sha256', 'outcome');

@@ -265,8 +265,9 @@ test('optional session references survive CLI writes, edits and receipts and aff
   const body=path.join(f.temp,'report.md');await writeFile(body,'CSV export preserves formulas. Checked a sample export. Date formatting remains unchanged.');
   await run(['send','--root',f.root,'--from','researcher','--to','coordinator','--kind','report','--session','163h','--title','CSV export preserves formulas; date formatting remains unchanged','--body-file',body],()=>{});
   const store=await readStore(f.root,await loadConfig(f.root)),report=store.messages[0];assert.equal(report.meta.session,'163h');assert.notEqual(recordHash(report.meta,report.body),recordHash({...report.meta,session:'164'},report.body));
+  for(const session of ['190','190a','190b','190z','190aa','191'])assert.doesNotThrow(()=>validateRecord({...report.meta,session},report.body,config()));
   const noSession={...report.meta};delete noSession.session;assert.doesNotThrow(()=>validateRecord(noSession,report.body,config()));
-  for(const session of ['',42,null,'run with spaces','x'.repeat(65)])assert.throws(()=>validateRecord({...report.meta,session},report.body,config()),/session/);
+  for(const session of ['',42,null,'run with spaces','x'.repeat(65),'0190','190A','190.1','190-a','0'])assert.throws(()=>validateRecord({...report.meta,session},report.body,config()),/session/);
   assert.throws(()=>validateRecord({...report.meta,other:'unknown'},report.body,config()),/Unknown/);
   await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify({...config(),identity:'researcher'}));git(f.root,'add','.');git(f.root,'commit','-m','report');app=await start(f.root);
   assert.equal((await app.call('update',{id:report.meta.id,sha256:report.sha256,text:'CSV formulas were verified; dates remain unchanged.'})).status,200);

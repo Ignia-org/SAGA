@@ -1,6 +1,8 @@
 # SAGA
 
-A local dashboard for agent requests, replies, tasks, and completion receipts. SAGA reads Markdown files in a Git repository you choose. It runs separately from that repository, so the application can manage different projects without carrying their private conversations in its own source tree.
+SAGA is the communication and supervision component of a workflow with agents scheduled to act repeatedly and autonomously on a project. Each agent has a role, reads incoming requests on each run, works within its scope, and sends reports or blocking questions through Git-backed Markdown mailboxes. The dashboard lets you follow their work, give instructions, answer blockers, and review completion without opening every agent session.
+
+Your agent platform provides execution and regular scheduling. SAGA provides shared communication and your control interface. It runs separately from your communication/documentation repository, keeping private messages outside the application's source tree.
 
 The project is in an early trial. The interface uses the name **SAGA**; workspace names and participant labels are your own.
 
@@ -26,55 +28,71 @@ On Windows, double-click `Start.cmd`. Keep the terminal open. Set the `PORT` env
 
 ## Getting started
 
-Give each agent a stable participant ID and a role with a bounded responsibility, such as researcher or reviewer. Keep its role instructions and current priorities in a dedicated Git repository for communication and internal documentation. Each scheduled run reads those documents and its incoming messages, does useful work within its role, then publishes a factual report and separate requests. SAGA is your dashboard over that repository; the agent platform runs and schedules the agents.
+Set up one recurring task per agent, with a stable participant ID and a defined role. Each run handles incoming messages, continues useful work within its scope, then reports results and sends separate requests for decisions or blockers. Manual runs test the setup; the operating model is agents returning at regular intervals while you supervise them in SAGA. Their schedules are independent of SAGA's refresh and Git intervals.
 
-### Prepare the shared repository
+### Prepare communication and access
 
-Create and clone your own communication repository, separate from the SAGA checkout and any application source repository. Initialize it from SAGA:
+Create and clone your own dedicated Git repository for communication and internal documentation. From the SAGA checkout, initialize participant IDs:
 
 ~~~sh
 node src/cli.mjs init --root /path/to/team-docs --identity operator --participants operator,researcher,reviewer --title "Team workspace"
 ~~~
 
-Add short role documents such as `roles/researcher.md` and a priorities document, then commit and push the configuration, mailboxes, and documents. Open this repository in SAGA. Choose your refresh and Git intervals in Settings; enable automatic pull and push if you want messages synchronized without manual publication.
+Here `operator` is your dashboard identity; `researcher` and `reviewer` are agent IDs, not platform accounts. Give each recurring task its own ID and role. Organize agent instructions however you prefer. A durable state file is recommended for memory and session numbering between runs; its name and structure are yours.
 
-Install the portable skill in the communication repository for your platform, using the commands below. Commit that copy so agent environments receive the helpers and protocol without needing access to SAGA itself. A copied skill is updated explicitly, not automatically.
+Provide Node.js 22+, Git, repository access, and the role's tools in each environment. Keep one communication checkout per agent with a common publication branch. Commit and push the initial configuration and mailboxes. Open your own checkout in SAGA and choose Git synchronization settings. Scheduling stays in the agent platform.
 
-### ChatGPT / Codex
+### ChatGPT / Codex recurring agent
 
-Use a local project in the ChatGPT desktop app's Work/Codex environment with access to the communication checkout, Node.js 22+, Git, and the repositories required by the role. Install the repository skill from SAGA:
+Add the agent's communication checkout as a local project in the desktop app's Work/Codex environment. From the SAGA checkout, install its portable skill:
 
 ~~~sh
 node src/cli.mjs install-skill --root /path/to/team-docs --destination .agents/skills/saga-mailbox
 ~~~
 
-Codex discovers repository skills under `.agents/skills`. Add one short instruction in `AGENTS.md` to use `saga-mailbox` for exchanges. Start one chat per role and test the prompt below. [OpenAI skill setup](https://learn.chatgpt.com/docs/build-skills).
+Commit and push the copy. The agent receives the skill and bundled CLI without access to SAGA itself. Optionally reference it in `AGENTS.md`. [OpenAI skill setup](https://learn.chatgpt.com/docs/build-skills).
 
-Ask the app to schedule that role's prompt at your chosen cadence, or configure it in Scheduled. Select the local project and give it the required repository access. Local runs need the computer awake and the app running. Web-only scheduled chats cannot directly edit your local checkout; use a configured execution environment for this file-based workflow. [OpenAI scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app).
+Use this recurring prompt, adapting the role and paths:
 
-### Claude
+~~~text
+Your participant ID is researcher; your role is to investigate and verify project questions.
+Communication repository: /path/to/team-docs. Report recipient: operator.
+Read and follow /path/to/team-docs/.agents/skills/saga-mailbox/SKILL.md.
+On each run, handle incoming work and continue autonomously within this role.
+Report results and send separate requests for decisions or blockers through the skill.
+In the communication repo, pull safely, validate, commit your own changes, and push to origin/main.
+~~~
 
-Use Claude Code in Desktop's Code tab or its CLI, with the communication repository as the working folder and any role-specific repositories available. Install the same skill in Claude's project directory:
+Test once, then create a recurring task in Scheduled with that project, prompt, and cadence, for example hourly. Alternatively ask in the role chat: “Schedule these instructions every hour for this local project.” Select local execution and configure the required file and Git access. Run now verifies that the scheduled environment can load the skill and publish a report. Local runs need the computer awake and the app running; web-only schedules cannot edit this checkout. [OpenAI scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app).
+
+### Claude recurring agent
+
+In Claude Desktop's Code tab, select the agent's communication checkout as its working folder. From SAGA, install the same portable skill in Claude's project directory:
 
 ~~~sh
 node src/cli.mjs install-skill --root /path/to/team-docs --destination .claude/skills/saga-mailbox
 ~~~
 
-Add one instruction in `CLAUDE.md` to use `saga-mailbox` for exchanges. Start a role session and test the prompt below. Claude Code loads project skills from `.claude/skills`. [Claude skill setup](https://code.claude.com/docs/en/skills).
+Commit and push the copy so the agent receives its skill and helpers. Optionally reference it in `CLAUDE.md`. [Claude skill setup](https://code.claude.com/docs/en/skills).
 
-In Desktop's Code tab, create a local scheduled task in Routines with that prompt, working folder, and cadence. Test Run now and configure the file, command, and Git permissions needed for unattended runs. The computer must be awake and the app open. For short-lived CLI polling, `/loop 1h <role prompt>` repeats work while the session is running. [Claude Desktop scheduling](https://code.claude.com/docs/en/desktop-scheduled-tasks), [CLI scheduling](https://code.claude.com/docs/en/scheduled-tasks).
-
-### Minimal role prompt
+Use this recurring prompt:
 
 ~~~text
-You are researcher. Read roles/researcher.md and priorities.md in /path/to/team-docs.
-Use saga-mailbox for communication as researcher; report to operator.
-Handle incoming work and continue the role's priorities. Follow the role's scope and Git policy.
+Your participant ID is reviewer; your role is to review project changes and identify concrete defects.
+Communication repository: /path/to/team-docs. Report recipient: operator.
+Read and follow /path/to/team-docs/.claude/skills/saga-mailbox/SKILL.md.
+On each run, handle incoming work and continue reviews autonomously within this role.
+Report results and send separate requests for decisions or blockers through the skill.
+In the communication repo, pull safely, validate, commit your own changes, and push to origin/main.
 ~~~
 
-Use the same prompt in either platform; load the installed skill by name or give its `SKILL.md` path if it is not discovered. Specify commit/push authorization and the target branch in the role document once, rather than repeating the mailbox protocol in every prompt. Session references are optional; supply one when your scheduler already assigns it.
+In Routines, choose New routine, Local, this working folder, these instructions, and a regular schedule such as hourly. Configure the permission mode and required tools, then test Run now and review its first report. Local tasks require the computer awake and the app open. Claude Code CLI's `/loop` serves session polling; this setup uses Desktop's persistent local schedule. [Claude Desktop scheduling](https://code.claude.com/docs/en/desktop-scheduled-tasks).
 
-Each agent should use its own checkout of the communication repository. Start with one shared communication branch and stagger scheduled runs. Pull before reading, validate before committing, and publish only your own changes under the role's Git policy. Stop and report dirty-checkout or divergence problems instead of resetting another participant's work. Worktrees and cloud clones need an explicit publication path: SAGA displays files in its selected checkout, not every isolated run's working copy. Review the first few runs before increasing frequency.
+### Keep the loop coherent
+
+Adapt the sample roles, scope, branch, and commit/push authorization to your project. If agents also work in another repository, configure its access and Git policy explicitly. Stagger runs and avoid overlap for the same agent. Stop and report dirty-checkout or divergence problems rather than resetting work. Isolated worktrees or cloud clones need a defined publication path to the branch your dashboard pulls.
+
+An agent may keep its memory in a state file, or use another durable mechanism. Its scheduler or state supplies session numbering: an independent run uses `190`; returning to that completed run uses `190a`, then `190b`. The next independent run uses `191`. Session references are optional, separate from descriptive titles. The skill defines the continuation rules.
 
 ## Try the example
 

@@ -42,7 +42,7 @@ Files have one optional H1 header and zero or more delimited records. Metadata i
 <!-- /exchange -->
 ````
 
-IDs must be globally unique lowercase slugs of up to 64 characters. Keep the ID stable when editing a message. `kind`: `request`, `question`, `decision`, `report`, `reply`, `receipt`. `status`: `untriaged`, `open`, `in_progress`, `waiting`, `blocked`, `done`. `priority`: `low`, `normal`, `high`, `urgent`. `created`: ISO timestamp including timezone. `title`: one line, at most 200 characters. `reply_to`: incoming message ID or null. Optional `session`: a sender-scoped session/run reference as a string of 1–64 letters, digits, dots, underscores, or hyphens, starting with a letter or digit (for example `"42"` or `"163h"`). Omit it when no reference was assigned; old records need no migration. It is displayed separately from the title and included in the record hash. Do not add unknown metadata fields or use the record delimiters in message bodies.
+IDs must be globally unique lowercase slugs of up to 64 characters. Keep the ID stable when editing a message. `kind`: `request`, `question`, `decision`, `report`, `reply`, `receipt`. `status`: `untriaged`, `open`, `in_progress`, `waiting`, `blocked`, `done`. `priority`: `low`, `normal`, `high`, `urgent`. `created`: ISO timestamp including timezone. `title`: one line, at most 200 characters. `reply_to`: incoming message ID or null. Optional `session`: a sender-scoped positive integer string with an optional lowercase letter suffix, up to 64 characters, without leading zeros (for example `"190"`, `"190a"`, or `"190aa"`). Omit it when no reference was assigned; old records need no migration. It is displayed separately from the title and included in the record hash. Do not add unknown metadata fields or use the record delimiters in message bodies.
 
 Use plain words rather than decorative emojis in new subjects, headings, bullets, and bodies.
 
@@ -55,6 +55,14 @@ Reports must be understandable to a reader who did not follow the session. Expla
 Each request is independently understandable: state the action or decision, the context necessary to act, and the expected result. Do not require the recipient to reconstruct its meaning from a report or another message.
 
 Titles name the concrete subject and result, limitation, or requested action so the reader can decide whether to open the message. Use sentence case without announcements, hype, decorative emphasis, or session bookkeeping. Write neutral factual prose, separate observations from proposals, and qualify completion claims by what was actually checked. The mailbox skill defines the shared writing guidance.
+
+## Sessions and continuations
+
+A new independent scheduled session uses its assigned main number (`190`). After completion, a follow-up discussion or implementation uses the next unused sub-session under that numeric base: `190a`, `190b`, etc. Suffixes proceed `a` through `z`, then `aa`, `ab`. Reopening completed `190a` gives `190b`, not `190aa`. The next independent scheduled session uses the next assigned main number (`191`).
+
+Messages in one active run may share its reference. References are scoped to the sender, so different agents can both have session `190`. Each message has its own globally unique ID. Add a new report for a continuation rather than rewriting the original. Correcting a typo does not require a sub-session.
+
+The scheduler or agent's durable state supplies numbering. Keep allocation state outside transient mailboxes so cleanup cannot reset it. Do not infer numbering from remaining reports or commit counts. Omit the field if numbering is not configured. Validation checks canonical syntax, not historical continuity: cleaned messages cannot establish it. The dashboard displays full references and orders messages by `created` without converting them to numbers or sorting them lexically.
 
 ## Markdown display
 
