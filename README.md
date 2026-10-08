@@ -52,13 +52,16 @@ Workspace settings are stored in `exchange.config.json` in the managed repositor
 | Interface refresh | 60 seconds | `0` means manual; otherwise 10–86400 seconds |
 | Automatic commits | Enabled | Commits only files written by SAGA |
 | Automatic pulls / pushes | Disabled | Each is independently enabled |
-| Git interval | 300 seconds | Separate from UI refresh; `0` disables scheduled Git |
+| Git interval | 5 minutes | Pulls the active branch; `0` disables scheduled Git |
+| Branch discovery | Enabled | Discovers local and remote Git branches without a list |
+| Automatic branch fetch | Disabled | Independently refreshes all remote branches |
+| Branch fetch interval | 5 minutes | Configurable from 1 to 1440 minutes |
 | Sync on startup / after writes | Disabled | Explicit switches |
 | Remote / required branch | `origin` / unrestricted | Optional branch guard |
 | Cleanup | Review required | Automatic or disabled are also available |
 | Receipt scan interval | 300 seconds | Runs only in automatic cleanup mode |
 | Manual cleanup confirmation | Enabled | Can be disabled independently |
-| Display timezone / import offset | `UTC` / `+00:00` | No project-specific timezone is baked in |
+| Display timezone | `UTC` | No project-specific timezone is baked in |
 | Page size / expanded cards | 50 / 0 | Configurable to suit large histories |
 | Default type / priority / status | request / normal / open | Used for new messages |
 | History commits | 60 | Configurable, up to 200 |
@@ -100,7 +103,7 @@ Inbox cards show the sender; outbox cards show the recipient. Participant monito
 
 The composer stays alongside your inbox. Choose Float to detach it, drag its heading to move it, and resize its bottom corner on desktop. Choose Dock to restore the side panel. Drafts are stored separately for each repository, branch, and operator. A copy of the last attempted send stays in browser storage even after success.
 
-Branches lists incoming messages present or changed on other local and fetched remote branches. Fetch and check branches refreshes remote references. Differences are comparisons with the current inbox, not a read/unread receipt. Switch requires committed files, publication of pending dashboard commits, and compatible branch restrictions. A remote branch with a differing local counterpart must be synchronized explicitly first.
+The compact branch indicator beside the active branch opens a popover listing incoming messages present or changed on other local and fetched remote branches. Fetch and check branches refreshes remote references. Enable automatic branch fetch and choose its interval in Settings. No branch names need to be configured; discovery can also be disabled. Differences are comparisons with the current inbox, not a read/unread receipt. Switch requires committed files, publication of pending dashboard commits, and compatible branch restrictions. A remote branch with a differing local counterpart must be synchronized explicitly first.
 
 ## Validation in CI
 

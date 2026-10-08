@@ -221,3 +221,15 @@ test('already published commits clear stale intent despite a publication hold',a
  assert.equal((await app.synchronize()).state,'ok');assert.throws(()=>git(f.root,'config','--get','saga.pendingBranch'));assert.equal(git(f.root,'config','--get','dashboard.publicationHold'),'true');
  }finally{if(app)await app.stop();await f.dispose();}
 });
+
+test('automatic branch fetch discovers remote branches without a list or changing local edits',async()=>{
+ const f=await fixture();let app;try{
+ const c={...config(),autoPull:false,autoPush:false,discoverBranches:true,autoFetchBranches:true,branchFetchMinutes:3};await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify(c));git(f.root,'add','.');git(f.root,'commit','-m','discovery settings');
+ const branch=git(f.root,'branch','--show-current'),remote=path.join(f.temp,'remote.git'),peer=path.join(f.temp,'peer');git(f.temp,'init','--bare',remote);git(f.root,'remote','add','origin',remote);git(f.root,'push','-u','origin','HEAD');git(f.temp,'clone',remote,peer);git(peer,'config','user.name','Test');git(peer,'config','user.email','test@example.com');git(peer,'checkout','-b','new-team');
+ await writeFile(path.join(peer,'mailboxes/outboxes/researcher.md'),mailboxText('researcher','outboxes',[{meta:meta('m-discovered','researcher','coordinator'),body:'Discovered incoming report.'}]));git(peer,'add','.');git(peer,'commit','-m','incoming message');git(peer,'push','origin','new-team');
+ git(f.root,'config','remote.origin.fetch','+refs/heads/'+branch+':refs/remotes/origin/'+branch);await writeFile(path.join(f.root,'unrelated.txt'),'unfinished local work');
+ app=await createDashboard(f.root);await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));const state=await(await fetch('http://127.0.0.1:'+app.server.address().port+'/api/state',{headers:{'X-Dashboard-Token':app.token}})).json();
+ assert.equal(state.branch,branch);assert.equal(await readFile(path.join(f.root,'unrelated.txt'),'utf8'),'unfinished local work');assert.equal(state.branches.find(b=>b.ref==='refs/remotes/origin/new-team').newMessages,1);assert.ok(state.branchRefresh.last);
+ assert.throws(()=>validateConfig({...c,branchFetchMinutes:0}),/branchFetchMinutes/);
+ }finally{if(app)await new Promise(resolve=>app.server.close(resolve));await f.dispose();}
+});

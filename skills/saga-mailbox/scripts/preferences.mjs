@@ -2,6 +2,9 @@ export const defaults = Object.freeze({
   refreshSeconds: 60,
   syncSeconds: 300,
   cleanupSeconds: 300,
+  discoverBranches: true,
+  autoFetchBranches: false,
+  branchFetchMinutes: 5,
   autoCommit: true,
   autoPull: false,
   autoPush: false,
@@ -28,7 +31,8 @@ export function validatePreferences(config) {
     if (!Number.isInteger(config[key]) || config[key] < 0 || config[key] > 86400 || (config[key] > 0 && config[key] < 10)) fail(`${key} must be 0 (manual) or 10–86400 seconds.`);
   }
   if (!Number.isInteger(config.cleanupSeconds) || config.cleanupSeconds < 10 || config.cleanupSeconds > 86400) fail('cleanupSeconds must be 10–86400 seconds.');
-  for (const key of ['autoCommit', 'autoPull', 'autoPush', 'syncOnStart', 'syncAfterWrite', 'showMonitoring', 'confirmCleanup']) if (typeof config[key] !== 'boolean') fail(`${key} must be a boolean.`);
+  for (const key of ['discoverBranches', 'autoFetchBranches', 'autoCommit', 'autoPull', 'autoPush', 'syncOnStart', 'syncAfterWrite', 'showMonitoring', 'confirmCleanup']) if (typeof config[key] !== 'boolean') fail(`${key} must be a boolean.`);
+  if (!Number.isInteger(config.branchFetchMinutes) || config.branchFetchMinutes < 1 || config.branchFetchMinutes > 1440) fail('branchFetchMinutes must be 1–1440 minutes.');
   if (config.autoPush && !config.autoCommit) fail('Automatic push requires automatic commits.');
   if (config.cleanup === 'automatic' && !config.autoCommit) fail('Automatic cleanup requires automatic commits to retain its history.');
   if (typeof config.gitRemote !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(config.gitRemote)) fail('gitRemote must be a Git remote name.');

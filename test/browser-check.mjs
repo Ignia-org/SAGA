@@ -62,8 +62,8 @@ try {
   await page.getByRole('button',{name:'Approve and clean up',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.getByText('No completion receipts yet.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Git history',exact:true}).click();await page.getByRole('button',{name:'Before',exact:true}).first().waitFor();await page.getByRole('button',{name:'Before',exact:true}).first().click();
   await page.locator('pre:visible').filter({hasText:'Verify export'}).waitFor();
-  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByLabel('Cleanup policy',{exact:true}).selectOption('automatic');await page.getByRole('button',{name:'Save settings',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
-  await page.waitForFunction(()=>document.querySelector('#setting-cleanup')?.value==='automatic');
+  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByLabel('Discover branches automatically',{exact:true}).check();await page.getByLabel('Branch refresh interval (minutes)',{exact:true}).fill('7');await page.getByLabel('Git synchronization interval (minutes)',{exact:true}).fill('3');await page.getByLabel('Cleanup policy',{exact:true}).selectOption('automatic');await page.getByRole('button',{name:'Save settings',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#setting-cleanup')?.value==='automatic');assert.equal(await page.getByLabel('Branch refresh interval (minutes)',{exact:true}).inputValue(),'7');assert.equal(await page.getByLabel('Git synchronization interval (minutes)',{exact:true}).inputValue(),'3');
   await page.getByRole('button',{name:'Participant monitoring',exact:true}).click();assert.equal(await page.locator('#compose').isVisible(),false);
   await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Inbox',exact:true}).click();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);

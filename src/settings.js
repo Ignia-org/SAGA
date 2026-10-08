@@ -35,8 +35,13 @@ function renderSettings(c) {
       ${settingsToggle('autoCommit','Commit dashboard writes automatically',c.autoCommit,'When disabled, SAGA saves files for you to commit manually.')}
       ${settingsToggle('autoPull','Pull automatically',c.autoPull)}${settingsToggle('autoPush','Push pending dashboard commits automatically',c.autoPush)}
       ${settingsToggle('syncOnStart','Synchronize when SAGA starts',c.syncOnStart)}${settingsToggle('syncAfterWrite','Synchronize after a write',c.syncAfterWrite)}
-      <div class="settings-grid">${settingsField('syncSeconds','Scheduled Git interval (seconds)',c.syncSeconds,'number','0 disables scheduled Git. Independent from interface refresh.')}${settingsField('gitRemote','Git remote',c.gitRemote)}${settingsField('expectedBranch','Required branch (optional)',c.expectedBranch,'text','Leave blank to use the currently checked-out branch.')}${settingsField('commitPrefix','Commit message prefix',c.commitPrefix)}</div>
+      <div class="settings-grid">${settingsField('syncMinutes','Git synchronization interval (minutes)',c.syncSeconds/60,'number','0 disables scheduled Git. Pull applies to the active branch.').replace('step="1"','step="any"')}${settingsField('gitRemote','Git remote',c.gitRemote)}${settingsField('expectedBranch','Required branch (optional)',c.expectedBranch,'text','Leave blank to use the currently checked-out branch.')}${settingsField('commitPrefix','Commit message prefix',c.commitPrefix)}</div>
       <div class="actions"><button id="pullNow" type="button">Pull now</button><button id="pushNow" type="button">Push pending commits</button></div>
+    </section>
+    <section class="card panel"><h3>Branch discovery</h3><p class="hint">Branches are discovered from Git, without a configured list. Remote refresh fetches every branch without switching or merging it.</p>
+      ${settingsToggle('discoverBranches','Discover branches automatically',c.discoverBranches)}
+      ${settingsToggle('autoFetchBranches','Fetch branch updates automatically',c.autoFetchBranches)}
+      ${settingsField('branchFetchMinutes','Branch refresh interval (minutes)',c.branchFetchMinutes,'number','Runs independently of active-branch pulls and interface refresh. Minimum 1 minute.')}
     </section>
     <section class="card panel"><h3>Completion receipts</h3><div class="settings-grid">${settingsChoice('cleanup','Cleanup policy',c.cleanup,modes)}${settingsField('cleanupSeconds','Automatic receipt scan interval (seconds)',c.cleanupSeconds,'number','Independent from interface and Git intervals; minimum 10 seconds.')}</div>
       ${settingsToggle('confirmCleanup','Confirm manual cleanup and receipt dismissal',c.confirmCleanup)}
@@ -48,8 +53,9 @@ function collectSettings() {
   const settings = {};
   for (const key of ['title','identity','mailboxDirectory','timeZone','defaultKind','defaultPriority','defaultStatus','gitRemote','commitPrefix','cleanup']) settings[key]=$('setting-'+key).value.trim();
   for (const key of ['expectedBranch']) settings[key]=$('setting-'+key).value.trim()||null;
-  for (const key of ['refreshSeconds','syncSeconds','cleanupSeconds','pageSize','defaultExpanded','historyLimit']) settings[key]=Number($('setting-'+key).value);
-  for (const key of ['autoCommit','autoPull','autoPush','syncOnStart','syncAfterWrite','showMonitoring','confirmCleanup']) settings[key]=$('setting-'+key).checked;
+  for (const key of ['refreshSeconds','branchFetchMinutes','cleanupSeconds','pageSize','defaultExpanded','historyLimit']) settings[key]=Number($('setting-'+key).value);
+  for (const key of ['discoverBranches','autoFetchBranches','autoCommit','autoPull','autoPush','syncOnStart','syncAfterWrite','showMonitoring','confirmCleanup']) settings[key]=$('setting-'+key).checked;
+  settings.syncSeconds=Math.round(Number($('setting-syncMinutes').value)*60);
   settings.participants=[...document.querySelectorAll('#participantRows .participant-row')].map(row=>({id:row.querySelector('[data-participant="id"]').value.trim(),label:row.querySelector('[data-participant="label"]').value.trim(),aliases:row.querySelector('[data-participant="aliases"]').value.split(',').map(a=>a.trim()).filter(Boolean)}));
   return settings;
 }

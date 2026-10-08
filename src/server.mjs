@@ -105,6 +105,14 @@ export async function createDashboard(root, options = {}) {
     return sync;
   }
   let branchCacheKey = '', branchCache = [];
+  const branchRefresh = { last: null, error: null, workspaceRoot: root };
+  async function fetchBranchUpdates() {
+    const config = await loadConfig(root); branchRefresh.workspaceRoot = root;
+    try {
+      await git('fetch', '--prune', config.gitRemote, '+refs/heads/*:refs/remotes/' + config.gitRemote + '/*');
+      branchRefresh.last = new Date().toISOString(); branchRefresh.error = null; branchCacheKey = '';
+    } catch (error) { branchRefresh.error = error.stderr?.trim() || error.message; throw error; }
+  }
   async function branchSnapshot(ref, operator) {
     const config = validateConfig(JSON.parse(await git('show', ref + ':exchange.config.json')));
     const messages = [];
@@ -159,7 +167,7 @@ export async function createDashboard(root, options = {}) {
     configureSchedule(config);
     const store = await readStore(root, config);
     const outbox = await read(`${config.mailboxDirectory}/outboxes/${config.identity}.md`);
-    return { branches: await branches(config, store), git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
+    return { branchRefresh: branchRefresh.workspaceRoot === root ? { ...branchRefresh } : { last: null, error: null }, branches: config.discoverBranches ? await branches(config, store) : [], git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
   }
   async function message(data) {
     const config = await loadConfig(root), store = await readStore(root, config);
@@ -271,7 +279,7 @@ export async function createDashboard(root, options = {}) {
       const result = await locked(async () => {
         if (url.pathname === '/api/branches') {
           const config = await loadConfig(root);
-          if (data.fetch === true) await git('fetch', '--prune', config.gitRemote);
+          if (data.fetch === true) await fetchBranchUpdates();
           return { branches: await branches(config, await readStore(root, config)) };
         }
         if (url.pathname === '/api/branch') return switchBranch(data);
@@ -310,19 +318,21 @@ export async function createDashboard(root, options = {}) {
       send(200, result); if (!options.noSync) { const config = await loadConfig(root); if (config.syncAfterWrite && (config.autoPush || config.autoPull)) locked(synchronize); }
     } catch (e) { send(409, { error: e.message }); }
   });
-  let timer, scheduleKey = '', nextSync = Infinity, nextCleanup = Infinity;
+  let timer, scheduleKey = '', nextSync = Infinity, nextCleanup = Infinity, nextBranches = Infinity;
   function configureSchedule(config, initial = false) {
     if (options.noSync) return;
     const key = JSON.stringify(config); if (!initial && key === scheduleKey) return;
     clearTimeout(timer); scheduleKey = key;
     nextSync = config.syncSeconds > 0 && (config.autoPull || config.autoPush) ? Date.now() + config.syncSeconds * 1000 : Infinity;
+    nextBranches = config.discoverBranches && config.autoFetchBranches ? Date.now() + config.branchFetchMinutes * 60000 : Infinity;
     nextCleanup = config.cleanup === 'automatic' ? Date.now() + config.cleanupSeconds * 1000 : Infinity;
     arm();
   }
   function arm() {
-    clearTimeout(timer); const due = Math.min(nextSync, nextCleanup); if (!Number.isFinite(due)) return;
+    clearTimeout(timer); const due = Math.min(nextSync, nextCleanup, nextBranches); if (!Number.isFinite(due)) return;
     timer = setTimeout(() => locked(async () => {
       const config = await loadConfig(root); configureSchedule(config);
+      if (Date.now() >= nextBranches) { nextBranches = Date.now() + config.branchFetchMinutes * 60000; try { await fetchBranchUpdates(); } catch {} }
       if (Date.now() >= nextSync) { nextSync = Date.now() + config.syncSeconds * 1000; await synchronize(); }
       if (Date.now() >= nextCleanup) {
         nextCleanup = config.cleanup === 'automatic' ? Date.now() + config.cleanupSeconds * 1000 : Infinity;
@@ -332,10 +342,10 @@ export async function createDashboard(root, options = {}) {
   }
   server.on('listening', () => {
     if (options.noSync) return;
-    locked(async () => { const config = await loadConfig(root); configureSchedule(config, true); if (config.syncOnStart && (config.autoPull || config.autoPush)) await synchronize(); }).catch(e => { if (e.code !== 'ENOENT') { sync.state = 'error'; sync.message = e.message; } });
+    locked(async () => { const config = await loadConfig(root); configureSchedule(config, true); if (config.discoverBranches && config.autoFetchBranches) { try { await fetchBranchUpdates(); } catch {} } if (config.syncOnStart && (config.autoPull || config.autoPush)) await synchronize(); }).catch(e => { if (e.code !== 'ENOENT') { sync.state = 'error'; sync.message = e.message; } });
   });
   server.on('close', () => clearTimeout(timer));
-  return { server, sync, token, synchronize: (operation) => locked(() => synchronize(operation)), processReceipts: () => locked(async () => { const config = await loadConfig(root); if (config.cleanup !== 'automatic') return 0; return clean(); }) };
+  return { server, sync, token, synchronize: (operation) => locked(() => synchronize(operation)), fetchBranchUpdates: () => locked(fetchBranchUpdates), processReceipts: () => locked(async () => { const config = await loadConfig(root); if (config.cleanup !== 'automatic') return 0; return clean(); }) };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const localSettings = path.resolve(here, '../.saga/local.json');
