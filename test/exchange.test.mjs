@@ -213,3 +213,11 @@ test('branch inbox differences and safe switching preserve local work',async()=>
  const favicon=await fetch(app.base+'/favicon.svg');assert.equal(favicon.status,200);assert.match(favicon.headers.get('content-type'),/svg/);
  }finally{if(app)await app.stop();await f.dispose();}
 });
+
+test('already published commits clear stale intent despite a publication hold',async()=>{
+ const f=await fixture();let app;try{
+ const remote=path.join(f.temp,'remote.git');git(f.temp,'init','--bare',remote);git(f.root,'remote','add','origin',remote);git(f.root,'push','-u','origin','HEAD');
+ git(f.root,'config','dashboard.publicationHold','true');git(f.root,'config','saga.pendingBranch',git(f.root,'branch','--show-current'));app=await start(f.root);
+ assert.equal((await app.synchronize()).state,'ok');assert.throws(()=>git(f.root,'config','--get','saga.pendingBranch'));assert.equal(git(f.root,'config','--get','dashboard.publicationHold'),'true');
+ }finally{if(app)await app.stop();await f.dispose();}
+});

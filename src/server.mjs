@@ -70,16 +70,21 @@ export async function createDashboard(root, options = {}) {
     return { changedFiles: files.length, stagedFiles: (await git('diff', '--cached', '--name-only')).split('\n').filter(Boolean).length, ahead, behind, remoteRef, remoteKnown: counts !== null };
   }
   async function publish(config) {
-    const pending = await pendingBranch();
-    {
-      if (await publicationHeld()) throw new Error('Committed locally. Remote publication is paused pending authorization.');
-      if (pending && pending !== await git('branch', '--show-current')) throw new Error(`Pending publication belongs to branch ${pending}. Switch back.`);
-      const branch = await checkBranch(config);
-      const status = await gitStatus(config);
-      if (status.ahead !== 0) await git('push', config.gitRemote, 'HEAD:refs/heads/' + branch);
-      await git('config', '--local', '--unset', 'saga.pendingBranch').catch(() => {});
-      await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
+    const branch = await checkBranch(config), status = await gitStatus(config);
+    if (status.ahead === 0) {
+      const pending = await pendingBranch();
+      if (!pending || pending === branch) {
+        await git('config', '--local', '--unset', 'saga.pendingBranch').catch(() => {});
+        await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
+      }
+      return;
     }
+    const pending = await pendingBranch();
+    if (pending && pending !== branch) throw new Error('Pending publication belongs to branch ' + pending + '. Switch back.');
+    if (await publicationHeld()) throw new Error('Remote publication is paused. Local commits remain unpublished.');
+    await git('push', config.gitRemote, 'HEAD:refs/heads/' + branch);
+    await git('config', '--local', '--unset', 'saga.pendingBranch').catch(() => {});
+    await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
   }
   async function synchronize(operation = 'configured') {
     sync.state = 'syncing'; sync.message = 'Synchronizing…';
@@ -93,7 +98,8 @@ export async function createDashboard(root, options = {}) {
       const pull = operation === 'pull' || (operation === 'configured' && config.autoPull);
       if (push) await publish(config);
       if (pull) await git('pull', '--ff-only', config.gitRemote, branch);
-      const held = await publicationHeld();
+      const status = await gitStatus(config);
+      const held = await publicationHeld() && status.ahead !== 0;
       sync.state = held ? 'pending' : 'ok'; sync.message = held ? 'Publication held · local work retained' : push || pull ? 'Synchronization complete' : 'Automatic Git synchronization disabled'; sync.last = new Date().toISOString();
     } catch (e) { sync.state = 'error'; sync.message = e.stderr?.trim() || e.message; }
     return sync;
