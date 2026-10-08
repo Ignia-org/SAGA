@@ -36,6 +36,7 @@ This creates a separate local Git repository under ignored `.saga/demo`, with sy
 
 - **Inbox**: messages addressed to your configured identity.
 - **Your outbox**: requests and messages you own; edit, reply, update tasks, or close them.
+- **Requests**: actionable request/question records, separate from reports.
 - **Completion review**: exact-version completion receipts, with optional cleanup approval.
 - **Participant monitoring**: read-only conversations between other participants.
 - **Git history**: inspect mailbox snapshots before and after a commit.
@@ -99,9 +100,11 @@ The header shows uncommitted file counts and commits ahead/behind the locally kn
 
 ## Reading and writing
 
+Message bodies use standard Markdown paragraphs: soft line wrapping is ignored visually, while explicit hard breaks and blank lines are retained. The locally bundled Marked and DOMPurify versions and licenses are under `src/vendor`; no runtime installation is needed. Raw HTML stays visible as text.
+
 Inbox cards show the sender; outbox cards show the recipient. Participant monitoring keeps both sides. Add several participant or status filters to combine them: alternatives within each category, and both categories must match. Remove individual filter chips or choose Clear filters.
 
-The composer stays alongside your inbox. Choose Float to detach it, drag its heading to move it, and resize its bottom corner on desktop. Choose Dock to restore the side panel. Drafts are stored separately for each repository, branch, and operator. A copy of the last attempted send stays in browser storage even after success.
+The composer stays alongside your inbox. Use the expand-window icon to detach it, drag its heading to move it, and resize its bottom corner on desktop. Use the dock-panel icon to restore the side panel. While it floats, the message list takes the full available width. Drafts are stored separately for each repository, branch, and operator. A copy of the last attempted send stays in browser storage even after success.
 
 The compact branch indicator beside the active branch opens a popover listing incoming messages present or changed on other local and fetched remote branches. Fetch and check branches refreshes remote references. Enable automatic branch fetch and choose its interval in Settings. No branch names need to be configured; discovery can also be disabled. Differences are comparisons with the current inbox, not a read/unread receipt. Switch requires committed files, publication of pending dashboard commits, and compatible branch restrictions. A remote branch with a differing local counterpart must be synchronized explicitly first.
 

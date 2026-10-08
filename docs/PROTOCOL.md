@@ -46,6 +46,18 @@ IDs must be globally unique lowercase slugs of up to 64 characters. Keep the ID 
 
 Use plain words rather than decorative emojis in new subjects, headings, bullets, and bodies.
 
+## Reports and actionable requests
+
+At session end, use a `report` record for completed work and findings. Use separate `request` or `question` records for actions or decisions needed from a recipient. One independent action per request allows its checklist, status, completion receipt, and cleanup to work independently. A heading inside a report does not create another record. The dashboard Requests view contains requests and questions sent by or addressed to the operator.
+
+Reports must be understandable to a reader who did not follow the session. Explain the concrete problem, the change or finding, the observed result, the verification performed, and remaining limits. Avoid ticket/session numbers, unexplained shorthand, vague problem labels, and session narratives. Put exact file paths, document sections, verification commands, or evidence links beside the claims they let a reader check. References supplement the explanation; they must not be required to understand it.
+
+Each request is independently understandable: state the action or decision, the context necessary to act, and the expected result. Do not require the recipient to reconstruct its meaning from a report or another message.
+
+## Markdown display
+
+Bodies use GitHub-flavored Markdown with standard paragraph behavior: a single source newline is a soft break; an empty line separates paragraphs. Two trailing spaces or a backslash produce an explicit hard break. Lists, headings, tables, quotations, inline code, and fenced code retain their structure. Raw HTML is displayed as text. Images are represented by their alternative text; executable links are removed. Editable checklists continue to refer to their original source lines.
+
 ## Completion receipts and cleanup
 
 Receipts use the same record structure, plus `request_id`, `request_sha256`, and `outcome` (`completed`, `blocked`, or `rejected`). `completed` uses status `done`; the other outcomes use status `blocked`. The receipt sender must be the original message recipient, and the receipt recipient must be the original message sender.
@@ -63,6 +75,8 @@ Run these commands from the SAGA checkout and provide the workspace root explici
 ```sh
 node src/cli.mjs validate --root /path/to/workspace
 node src/cli.mjs list --to researcher --root /path/to/workspace
+node src/cli.mjs send --from researcher --to coordinator --kind report --title "Export behavior and verification" --body-file report.md --root /path/to/workspace
+node src/cli.mjs send --from researcher --to coordinator --kind request --title "Review the exported formulas" --body-file request.md --root /path/to/workspace
 node src/cli.mjs send --from researcher --to coordinator --kind reply --reply-to m-example-001 --title "Export result" --body-file result.md --root /path/to/workspace
 node src/cli.mjs receipt m-example-001 --from researcher --outcome completed --body-file result.md --root /path/to/workspace
 node src/cli.mjs close m-owned-request --from researcher --root /path/to/workspace

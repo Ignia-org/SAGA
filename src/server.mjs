@@ -194,7 +194,7 @@ export async function createDashboard(root, options = {}) {
     if (data.status) record.meta.status = data.status;
     if (data.line !== undefined) {
       const lines = record.body.split('\n');
-      if (!Number.isInteger(data.line) || typeof data.checked !== 'boolean' || !/^\s*[-*+] \[[ xX]\]/.test(lines[data.line] || '')) throw new Error('Task not found.');
+      if (!Number.isInteger(data.line) || typeof data.checked !== 'boolean' || !/^\s*(?:[-*+]|\d+[.)]) \[[ xX]\]/.test(lines[data.line] || '')) throw new Error('Task not found.');
       lines[data.line] = lines[data.line].replace(/\[[ xX]\]/, data.checked ? '[x]' : '[ ]'); record.body = lines.join('\n');
     }
     validateRecord(record.meta, record.body, config);
@@ -256,6 +256,11 @@ export async function createDashboard(root, options = {}) {
       if (req.method === 'GET' && url.pathname === '/favicon.svg') {
         res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' });
         return res.end(await readFile(path.join(here, 'favicon.svg'), 'utf8'));
+      }
+      const staticScripts = { '/markdown.js': 'markdown.js', '/vendor/marked.js': 'vendor/marked.js', '/vendor/purify.js': 'vendor/purify.js' };
+      if (req.method === 'GET' && staticScripts[url.pathname]) {
+        res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+        return res.end(await readFile(path.join(here, staticScripts[url.pathname]), 'utf8'));
       }
       if (req.method === 'GET' && url.pathname === '/settings.js') {
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });

@@ -28,8 +28,20 @@ try {
   browser=await chromium.launch({headless:true,...(process.env.DASHBOARD_BROWSER_CHANNEL?{channel:process.env.DASHBOARD_BROWSER_CHANNEL}:{})});const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://127.0.0.1:${app.server.address().port}`);
   await page.getByRole('heading',{name:'Inbox',exact:true}).waitFor();
-  await page.getByLabel('Recipient',{exact:true}).selectOption('worker');await page.getByLabel('Subject',{exact:true}).fill('Unsent draft');await page.getByLabel('Message body',{exact:true}).fill('Keep this text when switching branches.');
-  await page.locator('#branchSummary').click();await page.locator('[data-switch-branch="refs/heads/incoming"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:'incoming'}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='');
+  await page.getByLabel('Recipient',{exact:true}).selectOption('worker');
+  const markdown=await page.evaluate(()=>{
+    const nl=String.fromCharCode(10),container=document.createElement('div');container.className='body';document.body.append(container);
+    container.innerHTML=renderMarkdown(['A paragraph wrapped','for source readability.','','Second paragraph.'].join(nl));
+    const paragraphs=[...container.querySelectorAll('p')].map(p=>p.innerText);
+    container.innerHTML=renderMarkdown(['First  ','second','','third'+String.fromCharCode(92),'fourth'].join(nl));const hardBreaks=container.querySelectorAll('br').length;
+    container.innerHTML=renderMarkdown(['~~~md','- [ ] Same','~~~','','- [ ] Same','  continuation','  - [x] Nested','1. [ ] Ordered'].join(nl),{meta:{id:'m-check'}},true);
+    const taskLines=[...container.querySelectorAll('[data-line]')].map(e=>Number(e.dataset.line)),literal=container.querySelector('pre')?.innerText.trim();
+    container.innerHTML=renderMarkdown(['| Item | Result |','| --- | --- |','| **Export** | *Passed* |','','<script>alert(1)</script>','','[unsafe](javascript:alert(1))'].join(nl));
+    const table=container.querySelectorAll('table').length,unsafe=container.querySelectorAll('script,a[href^="javascript:"]').length;container.remove();return{paragraphs,hardBreaks,taskLines,literal,table,unsafe};
+  });
+  assert.deepEqual(markdown.paragraphs,['A paragraph wrapped for source readability.','Second paragraph.']);assert.equal(markdown.hardBreaks,2);assert.deepEqual(markdown.taskLines,[4,6,7]);assert.equal(markdown.literal,'- [ ] Same');assert.equal(markdown.table,1);assert.equal(markdown.unsafe,0);
+  await page.getByLabel('Subject',{exact:true}).fill('Unsent draft');await page.getByLabel('Message body',{exact:true}).fill('Keep this text when switching branches.');
+  await page.locator('#branchSummary').click();await page.locator('[data-switch-branch="refs/heads/incoming"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:'incoming'}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='');await page.getByRole('button',{name:'Requests',exact:true}).click();assert.equal(await page.locator('summary').filter({hasText:'Branch report'}).count(),0);await page.getByRole('button',{name:'Inbox',exact:true}).click();
   await page.locator('[data-switch-branch="refs/heads/'+baseBranch+'"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:baseBranch}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='Keep this text when switching branches.');await page.locator('#branchSummary').click();
 
   await page.getByLabel('Recipient',{exact:true}).selectOption('worker');await page.getByLabel('Subject',{exact:true}).fill('Verify export');await page.getByLabel('Message body',{exact:true}).fill('- [ ] Verify formulas\n\n<script>alert("escaped")</script>');
@@ -41,13 +53,14 @@ try {
   await page.getByLabel('Filter status',{exact:true}).selectOption('open');await page.getByLabel('Filter status',{exact:true}).selectOption('blocked');assert.equal(await page.locator('#filterTags [data-filter="status"]').count(),2);
   await page.getByRole('button',{name:'Clear filters',exact:true}).click();
   await page.getByLabel('Subject',{exact:true}).fill('Follow-up draft');await page.getByLabel('Message body',{exact:true}).fill('Review the export alongside the request.\n\n- [ ] Check the remaining edge cases');
-  await page.getByRole('button',{name:'Float composer',exact:true}).click();assert.equal(await page.locator('#compose').evaluate(e=>getComputedStyle(e).position),'fixed');
+  await page.getByRole('button',{name:'Float composer',exact:true}).click();assert.equal(await page.locator('#compose').evaluate(e=>getComputedStyle(e).position),'fixed');assert.equal(await page.locator('#columns').evaluate(e=>e.classList.contains('wide')),true);assert.equal(await page.locator('#detachCompose svg').count(),1);const feedBox=await page.locator('#feed').boundingBox(),columnsBox=await page.locator('#columns').boundingBox();assert.ok(Math.abs(feedBox.width-columnsBox.width)<2);
   const handle=await page.locator('#composeHandle h3').boundingBox();await page.mouse.move(handle.x+20,handle.y+10);await page.mouse.down();await page.mouse.move(handle.x-200,handle.y+40);await page.mouse.up();assert.ok(await page.locator('#compose').evaluate(e=>parseFloat(e.style.left)<window.innerWidth-660));
   if(process.argv[3]){await mkdir(process.argv[3],{recursive:true});await page.screenshot({path:path.join(process.argv[3],'floating-composer.png'),fullPage:true});}
   await page.getByRole('button',{name:'Dock composer',exact:true}).click();assert.match(await page.getByLabel('Message body',{exact:true}).inputValue(),/remaining edge cases/);
   const refreshBox=await page.locator('#refreshButton').boundingBox(),pushBox=await page.locator('#pushHeader').boundingBox();assert.ok(Math.abs(refreshBox.y-pushBox.y)<2);
   if(process.argv[3]){await mkdir(process.argv[3],{recursive:true});await page.screenshot({path:path.join(process.argv[3],'compact-outbox.png'),fullPage:true});}
 
+  await page.getByRole('button',{name:'Requests',exact:true}).click();await page.locator('summary').filter({hasText:'Verify export'}).waitFor();await page.getByRole('button',{name:'Your outbox',exact:true}).click();
   await page.getByRole('checkbox',{name:'Verify formulas',exact:true}).check();
   await page.waitForFunction(()=>document.querySelector('.task')?.classList.contains('done'));
   assert.equal(await page.locator('.body script').count(),0);
