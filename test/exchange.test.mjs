@@ -233,3 +233,12 @@ test('automatic branch fetch discovers remote branches without a list or changin
  assert.throws(()=>validateConfig({...c,branchFetchMinutes:0}),/branchFetchMinutes/);
  }finally{if(app)await new Promise(resolve=>app.server.close(resolve));await f.dispose();}
 });
+
+test('sync errors reach the client and confirmed automatic push releases the hold',async()=>{
+ const f=await fixture();let app;try{
+ const remote=path.join(f.temp,'remote.git');git(f.temp,'init','--bare',remote);git(f.root,'remote','add','origin',remote);git(f.root,'push','-u','origin','HEAD');app=await start(f.root);await send(app);git(f.root,'config','dashboard.publicationHold','true');
+ const failed=await app.call('sync',{});assert.equal(failed.status,409);assert.match((await failed.json()).error,/publication is paused/);
+ let state=await app.state();assert.equal((await app.call('settings',{version:state.configVersion,settings:{autoPush:true},releaseHold:true})).status,200);assert.throws(()=>git(f.root,'config','--get','dashboard.publicationHold'));
+ assert.equal((await app.call('sync',{})).status,200);assert.equal((await app.state()).git.ahead,0);
+ }finally{if(app)await app.stop();await f.dispose();}
+});

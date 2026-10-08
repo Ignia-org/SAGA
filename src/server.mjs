@@ -267,14 +267,14 @@ export async function createDashboard(root, options = {}) {
       if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return send(403, { error: 'Origin denied' });
       let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 100000) return send(413, { error: 'Message too large' }); }
       const data = JSON.parse(body || '{}');
-      if (url.pathname === '/api/sync') return send(200, await locked(async () => {
+      if (url.pathname === '/api/sync') return await locked(async () => {
         if (data.releaseHold === true) {
           if (data.operation !== 'push') throw new Error('Publication hold can only be released by an explicit push.');
           await git('config', '--local', '--unset', 'saga.publicationHold').catch(() => {});
           await git('config', '--local', '--unset', 'dashboard.publicationHold').catch(() => {});
         }
         return synchronize(data.operation || 'configured');
-      }));
+      }).then(result => result.state === 'error' ? send(409, { ...result, error: result.message }) : send(200, result));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
       const result = await locked(async () => {
         if (url.pathname === '/api/branches') {
@@ -307,10 +307,15 @@ export async function createDashboard(root, options = {}) {
           const allowed = ['title', 'identity', 'participants', 'mailboxDirectory', 'cleanup', ...Object.keys(defaults)];
           const patch = data.settings || { cleanup: data.cleanup };
           if (Object.keys(patch).some(key => !allowed.includes(key))) throw new Error('Unknown setting.');
+          if (data.releaseHold === true && patch.autoPush !== true) throw new Error('Enable automatic push to release the publication pause.');
           const config = validateConfig({ ...previous, ...patch });
           const checked = await readStore(root, config);
           if (checked.errors.length) throw new Error(checked.errors.join('\n') + '\nPaths must reference existing mailboxes; participants with mailbox files cannot be removed.');
           await persist([{ relative: 'exchange.config.json', old, next: JSON.stringify(config, null, 2) + '\n' }], 'exchange: update settings', config);
+          if (data.releaseHold === true) {
+            await git('config', '--local', '--unset', 'saga.publicationHold').catch(() => {});
+            await git('config', '--local', '--unset', 'dashboard.publicationHold').catch(() => {});
+          }
           configureSchedule(config); return { ok: true };
         }
         throw new Error('Unknown action');

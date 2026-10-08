@@ -95,7 +95,7 @@ node src/cli.mjs receipt m-request-id --root /path/to/repository --from contribu
 ```
 
 The CLI writes files but never stages, commits, or pushes them. [PROTOCOL.md](docs/PROTOCOL.md) defines the Markdown record format, ownership rules, receipt hashes, and remaining commands.
-The header shows uncommitted file counts and commits ahead/behind the locally known remote branch. Refresh does not fetch Git; remote counts update when Git synchronizes. **Push now** publishes the current branch even for commits created outside SAGA. **Auto push** enables commits and synchronization after writes; an existing publication pause must first be released through an explicitly confirmed push.
+The header shows uncommitted file counts and commits ahead/behind the locally known remote branch. Refresh does not fetch Git; remote counts update when Git synchronizes. **Push now** publishes the current branch even for commits created outside SAGA. **Auto push** enables commits and synchronization after writes; an existing publication pause can be released by confirming automatic push or an explicit push.
 
 ## Reading and writing
 
