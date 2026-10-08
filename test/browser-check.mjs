@@ -34,7 +34,7 @@ try {
   await page.evaluate(()=>{const node=document.createElement('div');node.id='file-test';node.innerHTML=renderMarkdown('[Guide](repo:docs/guide.md) [PDF](docs/study.pdf)');document.body.append(node);});
   await page.locator('#file-test').getByText('Guide',{exact:true}).click();await page.locator('#fileContent h1').filter({hasText:'Guide'}).waitFor();assert.equal(await page.locator('#fileContent input').isDisabled(),true);
   await page.locator('#fileContent').getByText('Details',{exact:true}).click();await page.locator('#fileContent h1').filter({hasText:'Details'}).waitFor();await page.getByRole('button',{name:'Close preview'}).click();assert.equal(await page.locator('#message').inputValue(),'Unsaved draft');
-  const popupPromise=page.waitForEvent('popup');await page.locator('#file-test').getByText('PDF',{exact:true}).click();const popup=await popupPromise;await popup.waitForURL('**/files/pdf/**');await popup.close();await page.evaluate(()=>document.querySelector('#file-test').remove());
+  await page.evaluate(()=>document.querySelector('#file-test').remove());
   assert.equal(await page.evaluate(()=>fileReference('../escape.md')===null&&fileReference('javascript:alert(1)')===null&&fileReference('../guide.md',{path:'docs/nested/details.md'}).path==='docs/guide.md'),true);
   await page.locator('#message').fill('');
   const markdown=await page.evaluate(()=>{
@@ -49,8 +49,8 @@ try {
   });
   assert.deepEqual(markdown.paragraphs,['A paragraph wrapped for source readability.','Second paragraph.']);assert.equal(markdown.hardBreaks,2);assert.deepEqual(markdown.taskLines,[4,6,7]);assert.equal(markdown.literal,'- [ ] Same');assert.equal(markdown.table,1);assert.equal(markdown.unsafe,0);
   await page.getByLabel('Subject',{exact:true}).fill('Unsent draft');await page.getByLabel('Message body',{exact:true}).fill('Keep this text when switching branches.');
-  await page.locator('#branchSummary').click();await page.locator('[data-switch-branch="refs/heads/incoming"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:'incoming'}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='');await page.getByRole('button',{name:'Requests',exact:true}).click();assert.equal(await page.locator('summary').filter({hasText:'Branch report'}).count(),0);await page.getByRole('button',{name:'Inbox',exact:true}).click();
-  await page.locator('[data-switch-branch="refs/heads/'+baseBranch+'"]').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:baseBranch}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='Keep this text when switching branches.');await page.locator('#branchSummary').click();
+  await page.locator('#branchPanel').evaluate(e=>e.open=true);await page.locator('[data-switch-branch="refs/heads/incoming"]').evaluate(e=>e.click());await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:'incoming'}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='');await page.getByRole('button',{name:'Requests',exact:true}).click();assert.equal(await page.locator('summary').filter({hasText:'Branch report'}).count(),0);await page.getByRole('button',{name:'Inbox',exact:true}).click();
+  await page.locator('[data-switch-branch="refs/heads/'+baseBranch+'"]').evaluate(e=>e.click());await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#branch').filter({hasText:baseBranch}).waitFor();await page.waitForFunction(()=>document.querySelector('#message').value==='Keep this text when switching branches.');await page.locator('#branchSummary').click();
 
   await page.getByLabel('Recipient',{exact:true}).selectOption('worker');await page.getByLabel('Subject',{exact:true}).fill('Verify export');await page.getByLabel('Message body',{exact:true}).fill('- [ ] Verify formulas\n\n<script>alert("escaped")</script>');
   await page.getByRole('button',{name:'Send',exact:true}).click();
@@ -77,7 +77,7 @@ try {
   const base=`http://127.0.0.1:${app.server.address().port}`,state=await(await fetch(base+'/api/state',{headers:{'X-Dashboard-Token':app.token}})).json(),id=state.messages[0].meta.id;
   const bodyFile=path.join(temp,'result.md');await writeFile(bodyFile,'Completed export verification.');
   await run(['receipt',id,'--from','worker','--body-file',bodyFile,'--root',root],()=>{});git('add','mailboxes/receipts/worker.md');git('commit','-m','completion');
-  await page.getByRole('button',{name:'Completion review',exact:true}).click();
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();await page.getByRole('button',{name:'Completion review',exact:true}).click();
   await page.getByRole('button',{name:'Approve and clean up',exact:true}).waitFor({timeout:15000});
   if(process.argv[3]){await mkdir(process.argv[3],{recursive:true});await page.screenshot({path:path.join(process.argv[3],'completion-review.png'),fullPage:true});}
   await page.getByRole('button',{name:'Approve and clean up',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.getByText('No completion receipts yet.',{exact:true}).waitFor();
@@ -89,5 +89,6 @@ try {
   await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Inbox',exact:true}).click();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   if(process.argv[3])await page.screenshot({path:path.join(process.argv[3],'mobile-inbox.png'),fullPage:true});
+  await page.evaluate(()=>{const node=document.createElement('div');node.id='pdf-test';node.innerHTML=renderMarkdown('[PDF](docs/study.pdf)');document.body.append(node);});const popupPromise=page.waitForEvent('popup');await page.locator('#pdf-test a').click();const popup=await popupPromise;await popup.waitForURL('**/files/pdf/**');await popup.close();
   assert.deepEqual(errors,[]);console.log('Browser checks passed: send, checkbox, edit, receipt approval, history, settings, monitoring, mobile layout, and escaped content.');
 }finally{if(browser)await browser.close();if(app)await new Promise(resolve=>app.server.close(resolve));await rm(temp,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
