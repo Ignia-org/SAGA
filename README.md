@@ -142,13 +142,13 @@ Choose the participant, write a concrete subject, and use type **request**. Desc
 
 ### Answer a blocking request
 
-Open **Requests** to see requests and questions sent by or addressed to you, apart from reports. Filter by a waiting or blocked status when useful. Expand the question and click **Reply** to state your decision. In this example, the owner accepts the default date format and specifies which acceptance check the reviewer should add. A reply does not by itself mark work completed or remove the original message; its owner closes it after the decision or work has been handled.
+Use **Reports** or **Received requests** under Inbox for the two common incoming views. **Received requests** includes requests and questions addressed to you. Open **Requests** to see requests and questions sent by or addressed to you, apart from reports. Filter by a waiting or blocked status when useful. Expand the question and click **Reply** to state your decision. In this example, the owner accepts the default date format and specifies which acceptance check the reviewer should add. A reply does not by itself mark work completed or remove the original message; its owner closes it after the decision or work has been handled.
 
 ![Answer a question awaiting a project decision](docs/screenshots/answer-request.png)
 
 ### Combine filters
 
-Add several participants or statuses to accumulate filter chips. Alternatives within one category are combined with OR; participant and status categories are combined with AND. Here the inbox includes Research or Review, and only messages waiting for an answer. Remove a chip individually or choose **Clear filters**. Text search and **Tasks only** further narrow the current view. Messages remain ordered by creation time.
+Add several participants or statuses to accumulate filter chips. Alternatives within one category are combined with OR; participant and status categories are combined with AND. Here the inbox includes Research or Review, and only messages waiting for an answer. Remove a chip individually or choose **Clear filters**. Text search and **Tasks only** further narrow the current view. Messages remain ordered by creation time. **All reading / reply states** filters Read, Unread, Awaiting reply, or Replied. Clicking a message title records its current version as read in this browser; automatic expansion does not. New or updated versions stay unread until you read them. A Replied badge requires a linked message from the original recipient back to its sender; it does not mean that the request is completed. Reading state stays local to the browser, while replies are shared through the mailboxes.
 
 ![Combine participant and status filters](docs/screenshots/filters.png)
 
