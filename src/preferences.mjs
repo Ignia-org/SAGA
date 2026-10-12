@@ -3,7 +3,7 @@ export const defaults = Object.freeze({
   syncSeconds: 300,
   cleanupSeconds: 300,
   discoverBranches: true,
-  autoFetchBranches: false,
+  autoFetchBranches: true,
   branchFetchMinutes: 5,
   autoCommit: true,
   autoPull: false,

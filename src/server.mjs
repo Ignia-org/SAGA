@@ -127,8 +127,8 @@ export async function createDashboard(root, options = {}) {
     return messages;
   }
   async function branchReferences(config) {
-    const text = await git('for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/', 'refs/remotes/' + config.gitRemote + '/');
-    return text.split('\n').filter(Boolean).map(line => { const [ref, sha] = line.split(' '); const remote = ref.startsWith('refs/remotes/'); return { ref, sha, remote, name: remote ? ref.slice(('refs/remotes/' + config.gitRemote + '/').length) : ref.slice('refs/heads/'.length) }; }).filter(b => b.name !== 'HEAD');
+    const text = await git('for-each-ref', '--format=%(refname) %(objectname) %(upstream)', 'refs/heads/', 'refs/remotes/' + config.gitRemote + '/');
+    return text.split('\n').filter(Boolean).map(line => { const [ref, sha, upstream] = line.split(' '); const remote = ref.startsWith('refs/remotes/'); return { ref, sha, upstream, remote, name: remote ? ref.slice(('refs/remotes/' + config.gitRemote + '/').length) : ref.slice('refs/heads/'.length) }; }).filter(b => b.name !== 'HEAD').filter(b => !b.upstream?.startsWith('refs/remotes/' + config.gitRemote + '/') || text.split('\n').some(line => line.startsWith(b.upstream + ' ')));
   }
   async function branches(config, store) {
     const current = await git('branch', '--show-current'), references = await branchReferences(config);
