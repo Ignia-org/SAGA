@@ -135,6 +135,9 @@ export async function createDashboard(root, options = {}) {
     const incoming = new Map(store.messages.filter(r => r.meta.to === config.identity && r.meta.kind !== 'receipt').map(r => [r.meta.id, r.sha256]));
     const key = JSON.stringify([root, current, config.identity, config.gitRemote, references, [...incoming]]);
     if (key === branchCacheKey) return branchCache;
+    const remoteHead = await git('symbolic-ref', '--short', 'refs/remotes/' + config.gitRemote + '/HEAD').catch(() => '');
+    const primaryName = remoteHead.startsWith(config.gitRemote + '/') ? remoteHead.slice(config.gitRemote.length + 1) : references.find(b => b.name === 'main')?.name || references.find(b => b.name === 'master')?.name;
+    for (const reference of references) reference.isPrimary = reference.name === primaryName;
     const others = references.filter(b => !(b.name === current && !b.remote) && !references.some(x => x.ref !== b.ref && !x.remote && b.remote && x.name === b.name && x.sha === b.sha));
     const result = [];
     for (const branch of others) {
