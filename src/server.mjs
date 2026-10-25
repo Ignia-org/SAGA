@@ -353,7 +353,12 @@ export async function createDashboard(root, options = {}) {
         const writes = ['/api/message', '/api/update', '/api/receipt-dismiss', '/api/cleanup', '/api/settings'];
         if (writes.includes(url.pathname) && !options.noSync) {
           const config = await loadConfig(root);
-          if (config.autoPush || (config.autoPull && config.syncAfterWrite)) await synchronize();
+          if (config.autoPush || (config.autoPull && config.syncAfterWrite)) {
+            if (url.pathname === '/api/message' && data.background === true) {
+              sync.state = 'pending'; sync.message = 'Saved locally. Synchronization queued.';
+              locked(synchronize).catch(e => { sync.state = 'error'; sync.message = e.message; });
+            } else await synchronize();
+          }
         }
         return { ...actionResult, sync: { ...sync } };
       });
