@@ -16,7 +16,15 @@ cd SAGA
 npm start
 ```
 
-Open [SAGA locally](http://127.0.0.1:4318). On the first run, enter your Git repository's absolute path and either open its existing workspace or initialize mailboxes. The selected path is remembered in ignored local state (`.saga/local.json`), outside the managed repository's configuration.
+Open [SAGA locally](http://127.0.0.1:4318). On the first run, SAGA guides you through setup:
+
+1. Enter the absolute path of your communication repository on this computer, or of the folder where it should go. SAGA checks the folder and explains what it found.
+2. If the folder is missing or empty, clone your team's existing repository into it (typical on a new computer; your existing Git credentials are used) or create a new Git repository.
+3. Open the workspace found there, or create one: workspace name, your participant ID, and one participant per agent. Automatic pulls and pushes are offered when the repository has a remote and stay off unless you opt in.
+
+If Git has no name and email on this computer, setup asks for them and stores them in that repository's local Git configuration. Once the workspace exists, an empty inbox lists the next steps: publish the repository, install the agent skill, and schedule agents.
+
+The selected path is remembered in ignored local state (`.saga/local.json`), outside the managed repository's configuration. If that repository is later missing, or its `exchange.config.json` is empty or invalid, SAGA returns to setup with the reason instead of failing.
 
 To select a configured repository directly:
 

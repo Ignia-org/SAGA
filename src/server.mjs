@@ -1,18 +1,33 @@
 import http from 'node:http';
 import { readRepositoryFile } from './files.mjs';
-import { readFile, writeFile, realpath, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, realpath, mkdir, stat, readdir } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { defaults } from './preferences.mjs';
-import { hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidates, mailboxText, parseMailbox, recordHash, validateRecord } from './protocol.mjs';
+import { CONFIG_FILE, parseConfigText, hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidates, mailboxText, parseMailbox, recordHash, validateRecord } from './protocol.mjs';
 
-const exec = promisify(execFile), here = path.dirname(fileURLToPath(import.meta.url));
+const exec = promisify(execFile), here = path.dirname(fileURLToPath(import.meta.url)), appRoot = path.resolve(here, '..');
+const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
+const samePath = (a, b) => caseInsensitive ? a.toLowerCase() === b.toLowerCase() : a === b;
+const insidePath = (child, parent) => { const relative = path.relative(caseInsensitive ? parent.toLowerCase() : parent, caseInsensitive ? child.toLowerCase() : child); return !relative.startsWith('..') && !path.isAbsolute(relative); };
+const gitIn = (cwd, args, timeout = 30000) => exec('git', args, { cwd, timeout, maxBuffer: 8e6, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).then(r => r.stdout.trim());
+const identityMissing = /tell me who you are|unable to auto-detect email|empty ident|user\.email/i;
+const identityHelp = 'Git does not know your name and email on this computer. Enter them in SAGA setup, or run git config --global user.name "Your Name" and git config --global user.email "you@example.com".';
+export function expandPath(input) {
+  if (typeof input !== 'string' || !input.trim()) throw new Error('Enter a folder path.');
+  let value = input.trim().replace(/^(["'])(.*)\1$/, '$2').trim();
+  if (value === '~' || /^~[\\/]/.test(value)) value = path.join(os.homedir(), value.slice(1));
+  if (!path.isAbsolute(value)) throw new Error('Enter an absolute path, for example ' + (process.platform === 'win32' ? 'C:\\Users\\you\\team-docs' : '/home/you/team-docs') + '.');
+  return path.resolve(value);
+}
 export const version = hash;
 export async function createDashboard(root, options = {}) {
-  root = await realpath(root);
+  root = await realpath(root).catch(() => path.resolve(root));
+  const appReal = await realpath(appRoot).catch(() => appRoot);
   const token = randomBytes(24).toString('hex'); let queue = Promise.resolve();
   const pdfTickets = new Map();
   const sync = { state: 'idle', message: 'Ready', last: null };
@@ -29,7 +44,7 @@ export async function createDashboard(root, options = {}) {
     const branch = await checkBranch(config);
     const pending = await pendingBranch(); if (pending && pending !== branch) throw new Error(`Pending publication belongs to branch ${pending}. Switch back before writing.`);
     for (const change of changes) {
-      if (config.autoCommit && await git('status', '--porcelain', '--', change.relative)) throw new Error(`${change.relative} has uncommitted edits. Commit them first.`);
+      if (config.autoCommit && change.old?.trim() !== '' && await git('status', '--porcelain', '--', change.relative)) throw new Error(`${change.relative} has uncommitted edits. Commit them first.`);
       if (await read(change.relative) !== change.old) throw new Error('A file changed during this action. Refresh and try again.');
     }
     if (config.autoCommit) await git('config', '--local', 'saga.pendingBranch', branch);
@@ -40,7 +55,7 @@ export async function createDashboard(root, options = {}) {
     const paths = changes.map(c => c.relative);
     message = message.replace(/^exchange:/, config.commitPrefix + ':');
     try { await git('add', '--', ...paths); const hasHead = await git('rev-parse', '--verify', 'HEAD').then(() => true).catch(() => false); if (hasHead) await git('commit', '--only', '-m', message, '--', ...paths); else await git('commit', '-m', message); }
-    catch (e) { sync.state = 'error'; sync.message = 'Saved on disk; commit failed. Finish the commit in Git: ' + (e.stderr || e.message); throw new Error(sync.message); }
+    catch (e) { const detail = e.stderr || e.message; sync.state = 'error'; sync.message = 'Saved on disk; commit failed. ' + (identityMissing.test(detail) ? identityHelp : 'Finish the commit in Git: ' + detail); throw new Error(sync.message); }
     sync.state = 'pending'; sync.message = 'Committed · awaiting publication';
   }
   async function clean(receiptIds = null, expected = null) {
@@ -167,12 +182,20 @@ export async function createDashboard(root, options = {}) {
     await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
     configureSchedule(targetConfig, true); sync.state = 'idle'; sync.message = 'Switched to ' + branch.name; return { ok: true };
   }
+  async function setupState(error) {
+    const folder = await stat(root).catch(() => null), isApplication = samePath(root, appReal);
+    let problem = null;
+    if (!folder?.isDirectory()) problem = `The repository folder ${root} does not exist on this computer. Choose where the repository is now, or clone it again.`;
+    else if (error.code !== 'ENOENT') problem = error.message;
+    return { setupRequired: true, workspaceRoot: root, suggestedRoot: isApplication ? '' : root, problem, appRoot: appReal, platform: process.platform, sync: { state: 'idle', message: 'No workspace selected', last: null } };
+  }
   async function state() {
-    let config; try { config = await loadConfig(root); } catch (e) { if (e.code === 'ENOENT') return { setupRequired: true, workspaceRoot: root }; throw e; }
+    let config; try { config = await loadConfig(root); } catch (e) { return setupState(e); }
+    if (!await git('rev-parse', '--show-toplevel').catch(() => '')) return setupState(new Error(`${root} is not a Git repository. Clone the repository there or choose another folder.`));
     configureSchedule(config);
     const store = await readStore(root, config);
     const outbox = await read(`${config.mailboxDirectory}/outboxes/${config.identity}.md`);
-    return { branchRefresh: branchRefresh.workspaceRoot === root ? { ...branchRefresh } : { last: null, error: null }, branches: config.discoverBranches ? await branches(config, store) : [], git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
+    return { appRoot: appReal, branchRefresh: branchRefresh.workspaceRoot === root ? { ...branchRefresh } : { last: null, error: null }, branches: config.discoverBranches ? await branches(config, store) : [], git: await gitStatus(config), workspaceRoot: root, publicationHold: await publicationHeld(), remotes: (await git('remote')).split('\n').filter(Boolean), config, configVersion: hash(await read('exchange.config.json')), outboxVersion: outbox === null ? null : hash(outbox), messages: store.messages, candidates: cleanupCandidates(store, config), errors: store.errors, sync: { ...sync }, branch: await git('branch', '--show-current'), pendingBranch: await pendingBranch() };
   }
   async function message(data) {
     const config = await loadConfig(root), store = await readStore(root, config);
@@ -222,20 +245,88 @@ export async function createDashboard(root, options = {}) {
     }
     return { commits };
   }
+  async function gitInstalled() { return gitIn(appReal, ['--version']).then(() => true).catch(e => e.code !== 'ENOENT'); }
+  async function inspectFolder(input) {
+    const target = expandPath(input), result = { path: target, exists: false, directory: false, empty: false, gitInstalled: await gitInstalled(), repository: null, isRepositoryRoot: false, isApplication: false, insideApplication: false, workspace: 'none', problem: null, title: null, identity: null, participants: [], remotes: [], branch: null, gitUser: { name: '', email: '' }, current: false };
+    const info = await stat(target).catch(() => null);
+    result.exists = Boolean(info); result.directory = Boolean(info?.isDirectory());
+    if (info && !result.directory) result.problem = 'This path is a file. Choose a folder.';
+    if (result.directory) {
+      const real = result.path = await realpath(target);
+      result.empty = (await readdir(real)).length === 0;
+      result.isApplication = samePath(real, appReal); result.insideApplication = insidePath(real, appReal);
+      result.current = samePath(real, root);
+      const top = result.gitInstalled ? await gitIn(real, ['rev-parse', '--show-toplevel']).then(t => realpath(t)).catch(() => null) : null;
+      if (top) {
+        result.repository = top; result.isRepositoryRoot = samePath(top, real);
+        if (result.isRepositoryRoot) {
+          result.remotes = (await gitIn(real, ['remote']).catch(() => '')).split('\n').filter(Boolean);
+          result.branch = await gitIn(real, ['branch', '--show-current']).catch(() => '');
+          try {
+            const text = await readFile(await safePath(real, CONFIG_FILE), 'utf8').catch(e => { if (e.code === 'ENOENT') return null; throw e; });
+            if (text === null) result.workspace = 'missing';
+            else {
+              const config = parseConfigText(text), store = await readStore(real, config);
+              Object.assign(result, { title: config.title, identity: config.identity, participants: config.participants.map(p => ({ id: p.id, label: p.label })) });
+              if (store.errors.length) { result.workspace = 'invalid'; result.problem = 'Mailbox format errors:\n' + store.errors.join('\n'); }
+              else result.workspace = 'valid';
+            }
+          } catch (e) { result.workspace = e.code === 'EMPTY_CONFIG' ? 'empty' : 'invalid'; result.problem = e.message; }
+        }
+      }
+      if (result.gitInstalled) for (const key of ['name', 'email']) result.gitUser[key] = await gitIn(real, ['config', 'user.' + key]).catch(() => '');
+    }
+    return result;
+  }
+  async function prepareFolder(data) {
+    const target = expandPath(data.root);
+    if (insidePath(target, appReal)) throw new Error('Choose a folder outside the SAGA application folder. SAGA keeps your messages in a separate repository.');
+    if (!await gitInstalled()) throw new Error('Git is not installed or not on PATH. Install Git, then restart SAGA.');
+    const info = await stat(target).catch(() => null);
+    if (info && !info.isDirectory()) throw new Error('This path is a file. Choose a folder.');
+    if (data.action === 'clone') {
+      const url = typeof data.url === 'string' ? data.url.trim() : '';
+      if (!url || url.startsWith('-') || /[\s\0]/.test(url)) throw new Error('Enter the URL of the repository to clone, for example https://github.com/your-org/team-docs.git.');
+      if (info && (await readdir(target)).length) throw new Error('This folder is not empty. Choose a new or empty folder to clone into.');
+      await mkdir(path.dirname(target), { recursive: true });
+      await gitIn(path.dirname(target), ['clone', '--', url, target], 600000).catch(e => { throw new Error('Clone failed. Check the URL and your Git access on this computer.\n' + (e.stderr?.trim() || e.message)); });
+    } else if (data.action === 'create') {
+      if (info && await gitIn(target, ['rev-parse', '--show-toplevel']).then(() => true).catch(() => false)) throw new Error('This folder is already inside a Git repository.');
+      await mkdir(target, { recursive: true });
+      await gitIn(target, ['init']);
+    } else throw new Error('Unknown preparation.');
+    return inspectFolder(target);
+  }
+  async function applyGitIdentity(repository, identity) {
+    if (identity === undefined || identity === null) return;
+    const values = { name: identity.name, email: identity.email };
+    for (const [key, value] of Object.entries(values)) {
+      if (typeof value !== 'string' || !value.trim() || value.length > 200 || /[\r\n\0]/.test(value)) throw new Error('Enter your name and email for Git commits.');
+      if (key === 'email' && !/^[^\s@]+@[^\s@]+$/.test(value.trim())) throw new Error('Enter a valid email address for Git commits.');
+    }
+    for (const [key, value] of Object.entries(values)) await gitIn(repository, ['config', '--local', 'user.' + key, value.trim()]);
+  }
   async function openWorkspace(data) {
-    if (typeof data.root !== 'string' || !data.root.trim()) throw new Error('Enter a repository path.');
-    const nextRoot = await realpath(path.resolve(data.root));
-    const top = await exec('git', ['rev-parse', '--show-toplevel'], { cwd: nextRoot, timeout: 10000, windowsHide: true }).then(r => realpath(r.stdout.trim()));
-    if (top.toLowerCase() !== nextRoot.toLowerCase()) throw new Error('Choose the Git repository root, not one of its subdirectories.');
+    const nextRoot = await realpath(expandPath(data.root)).catch(e => { if (e.code === 'ENOENT') throw new Error('This folder does not exist on this computer.'); throw e; });
+    if (!await gitInstalled()) throw new Error('Git is not installed or not on PATH. Install Git, then restart SAGA.');
+    const top = await gitIn(nextRoot, ['rev-parse', '--show-toplevel'], 10000).then(t => realpath(t)).catch(() => { throw new Error('This folder is not a Git repository. Clone your repository there or create one first.'); });
+    if (!samePath(top, nextRoot)) throw new Error('Choose the Git repository root, not one of its subdirectories.');
     const previousRoot = root;
     try {
+      if (data.gitIdentity) await applyGitIdentity(nextRoot, data.gitIdentity);
       if (data.initialize) {
+        if (insidePath(nextRoot, appReal)) throw new Error('SAGA keeps your messages outside its own application folder. Choose or create a separate repository.');
         const config = validateConfig({ schema: 1, ...data.config });
-        const existing = await readFile(await safePath(nextRoot, 'exchange.config.json'), 'utf8').catch(e => { if (e.code === 'ENOENT') return null; throw e; });
-        if (existing !== null) throw new Error('This repository already has a configuration. Open it instead.');
+        const existing = await readFile(await safePath(nextRoot, CONFIG_FILE), 'utf8').catch(e => { if (e.code === 'ENOENT') return null; throw e; });
+        if (existing !== null && existing.replace(/^\uFEFF/, '').trim()) throw new Error('This repository already has a configuration. Open it instead.');
+        if (config.autoCommit && !(await gitIn(nextRoot, ['config', 'user.email']).catch(() => ''))) throw new Error(identityHelp);
+        const changes = [{ relative: CONFIG_FILE, old: existing, next: JSON.stringify(config, null, 2) + '\n' }];
+        for (const category of ['outboxes', 'receipts']) for (const p of config.participants) {
+          const relative = `${config.mailboxDirectory}/${category}/${p.id}.md`;
+          if (await readFile(await safePath(nextRoot, relative), 'utf8').then(() => true).catch(() => false)) throw new Error(`${relative} already exists. Choose another mailbox directory, or restore ${CONFIG_FILE} from Git and open the workspace.`);
+          changes.push({ relative, old: null, next: mailboxText(p.id, category, []) });
+        }
         root = nextRoot;
-        const changes = [{ relative: 'exchange.config.json', old: null, next: JSON.stringify(config, null, 2) + '\n' }];
-        for (const category of ['outboxes', 'receipts']) for (const p of config.participants) changes.push({ relative: `${config.mailboxDirectory}/${category}/${p.id}.md`, old: null, next: mailboxText(p.id, category, []) });
         await persist(changes, 'exchange: initialize workspace', config);
       } else {
         const config = await loadConfig(nextRoot), store = await readStore(nextRoot, config);
@@ -247,6 +338,7 @@ export async function createDashboard(root, options = {}) {
         await writeFile(options.localSettings, JSON.stringify({ workspaceRoot: root }, null, 2) + '\n');
       }
       const config = await loadConfig(root); configureSchedule(config, true);
+      if (data.initialize && !options.noSync && (config.autoPush || config.autoPull)) await synchronize();
       return { ok: true, workspaceRoot: root };
     } catch (e) { root = previousRoot; throw e; }
   }
@@ -263,7 +355,7 @@ export async function createDashboard(root, options = {}) {
         res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' });
         return res.end(await readFile(path.join(here, 'favicon.svg'), 'utf8'));
       }
-      const staticScripts = { '/markdown.js': 'markdown.js', '/vendor/marked.js': 'vendor/marked.js', '/vendor/purify.js': 'vendor/purify.js' };
+      const staticScripts = { '/markdown.js': 'markdown.js', '/onboarding.js': 'onboarding.js', '/vendor/marked.js': 'vendor/marked.js', '/vendor/purify.js': 'vendor/purify.js' };
       if (req.method === 'GET' && staticScripts[url.pathname]) {
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
         return res.end(await readFile(path.join(here, staticScripts[url.pathname]), 'utf8'));
@@ -305,6 +397,8 @@ export async function createDashboard(root, options = {}) {
         return { ...result, url: '/files/pdf/' + ticket };
       }));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
+      if (url.pathname === '/api/inspect') return send(200, await inspectFolder(data.root));
+      if (url.pathname === '/api/prepare') return send(200, await prepareFolder(data));
       const result = await locked(async () => {
         const actionResult = await (async () => {
         if (url.pathname === '/api/branches') {
@@ -389,7 +483,7 @@ export async function createDashboard(root, options = {}) {
   }
   server.on('listening', () => {
     if (options.noSync) return;
-    locked(async () => { const config = await loadConfig(root); configureSchedule(config, true); if (config.discoverBranches && config.autoFetchBranches) { try { await fetchBranchUpdates(); } catch {} } if (config.syncOnStart && (config.autoPull || config.autoPush)) await synchronize(); }).catch(e => { if (e.code !== 'ENOENT') { sync.state = 'error'; sync.message = e.message; } });
+    locked(async () => { const config = await loadConfig(root).catch(() => null); if (!config) return; configureSchedule(config, true); if (config.discoverBranches && config.autoFetchBranches) { try { await fetchBranchUpdates(); } catch {} } if (config.syncOnStart && (config.autoPull || config.autoPush)) await synchronize(); }).catch(e => { if (e.code !== 'ENOENT') { sync.state = 'error'; sync.message = e.message; } });
   });
   server.on('close', () => clearTimeout(timer));
   return { server, sync, token, synchronize: (operation) => locked(() => synchronize(operation)), fetchBranchUpdates: () => locked(fetchBranchUpdates), processReceipts: () => locked(async () => { const config = await loadConfig(root); if (config.cleanup !== 'automatic') return 0; return clean(); }) };

@@ -59,11 +59,3 @@ function collectSettings() {
   settings.participants=[...document.querySelectorAll('#participantRows .participant-row')].map(row=>({id:row.querySelector('[data-participant="id"]').value.trim(),label:row.querySelector('[data-participant="label"]').value.trim(),aliases:row.querySelector('[data-participant="aliases"]').value.split(',').map(a=>a.trim()).filter(Boolean),...(row.querySelector('[data-participant="role"]').value.trim()?{role:row.querySelector('[data-participant="role"]').value.trim()}:{}),...(row.querySelector('[data-participant="reportTo"]').value.trim()?{reportTo:row.querySelector('[data-participant="reportTo"]').value.trim()}:{})}));
   return settings;
 }
-function renderSetup() {
-  return `<section class="card panel"><h3>Connect a repository</h3><p>SAGA keeps mailbox data in your own Git repository. Open an existing configured workspace or initialize a new one.</p>
-    ${settingsField('root','Repository path',state.workspaceRoot)}<div class="actions"><button id="openWorkspace">Open existing workspace</button></div>
-    <hr><h3>Initialize mailboxes</h3><div class="settings-grid">${settingsField('setupTitle','Workspace name','My workspace')}${settingsField('setupIdentity','Your participant ID','operator')}${settingsField('setupDirectory','Mailbox directory','mailboxes')}</div>
-    <label class="setting-field">Participants (JSON)<textarea id="setupParticipants" aria-label="Setup participants">${esc(JSON.stringify([{id:'operator',label:'Operator'},{id:'contributor',label:'Contributor'}],null,2))}</textarea></label>
-    <button id="initializeWorkspace" class="primary">Initialize this repository</button><p class="hint">Creates configuration and empty mailboxes. Initial files are committed locally. Automatic pulls and pushes remain off.</p>
-  </section>`;
-}
