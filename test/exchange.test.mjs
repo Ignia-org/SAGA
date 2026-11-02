@@ -387,3 +387,21 @@ test('setup discovers participants from Git history and existing mailboxes and s
     state=await app.state();assert.equal(state.config.identity,'reviewer');assert.equal(git(g.root,'status','--porcelain'),'');
   }finally{if(app)await app.stop();await f.dispose();await g.dispose();}
 });
+test('setup discovers participants from earlier channel files and hidden or deep mailbox folders',async()=>{
+  const temp=await mkdtemp(path.join(os.tmpdir(),'exchange-discovery-'));let app;
+  const repo=async(name)=>{const root=path.join(temp,name);await mkdir(root);git(root,'init','-q');return root;};
+  try{
+    const legacy=await repo('legacy');await mkdir(path.join(legacy,'docs','exchanges'),{recursive:true});
+    for(const name of ['Alice-to-Bob.md','Bob-to-Alice.md','Carol-to-Alice.md','Bob-to-Carol-2026-09-01.md'])await writeFile(path.join(legacy,'docs','exchanges',name),'## 2026-09-01 Notes\n\nText.');
+    app=await start(legacy);let x=await (await app.call('inspect',{root:legacy})).json();
+    assert.equal(x.discovered.source,'channels');assert.deepEqual(x.discovered.participants.map(p=>p.id).sort(),['alice','bob','carol']);
+    assert.equal(x.discovered.participants.find(p=>p.id==='alice').label,'Alice');assert.equal(x.discovered.suggestedIdentity,'alice');
+    const hidden=await repo('hidden');const box=path.join(hidden,'.team','comms','current','box');
+    for(const category of ['outboxes','receipts'])await mkdir(path.join(box,category),{recursive:true});
+    await writeFile(path.join(box,'outboxes','writer.md'),mailboxText('writer','outboxes',[{meta:{...meta('m-hidden','writer','lead'),kind:'report'},body:'Done.'}]));
+    x=await (await app.call('inspect',{root:hidden})).json();
+    assert.equal(x.discovered.source,'mailboxes');assert.equal(x.discovered.mailboxDirectory,'.team/comms/current/box');assert.equal(x.discovered.suggestedIdentity,'lead');
+    const empty=await repo('empty');x=await (await app.call('inspect',{root:empty})).json();
+    assert.deepEqual(x.discovered.participants,[]);assert.equal(x.discovered.searched.history,false);assert.deepEqual(x.discovered.searched.mailboxFolders,[]);
+  }finally{if(app)await app.stop();await rm(temp,{recursive:true,force:true});}
+});

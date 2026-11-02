@@ -245,8 +245,9 @@ export async function createDashboard(root, options = {}) {
     }
     return { commits };
   }
-  async function findMailboxDirectories(repository) {
-    const found = [], skip = new Set(['node_modules', '.git']);
+  // Walks the repository for structured mailboxes and channel files of the earlier `<from>-to-<to>.md` format.
+  async function scanExchangeFiles(repository) {
+    const mailboxes = [], channels = [], skip = new Set(['.git', 'node_modules']);
     async function visit(relative, depth) {
       const entries = await readdir(path.join(repository, relative), { withFileTypes: true }).catch(() => []);
       const names = new Set(entries.filter(e => e.isDirectory()).map(e => e.name));
@@ -254,14 +255,19 @@ export async function createDashboard(root, options = {}) {
         const files = [];
         for (const category of ['outboxes', 'receipts']) if (names.has(category)) for (const file of await readdir(path.join(repository, relative, category), { withFileTypes: true }).catch(() => [])) {
           const id = file.name.replace(/\.md$/, '');
-          if (file.isFile() && file.name.endsWith('.md') && slug.test(id)) files.push({ id, category, relative: relative + '/' + category + '/' + file.name });
+          if (file.isFile() && file.name.endsWith('.md') && slug.test(id)) files.push({ id, category, relative: (relative ? relative + '/' : '') + category + '/' + file.name });
         }
-        if (files.length) found.push({ directory: relative, files });
+        if (files.length) mailboxes.push({ directory: relative, files });
       }
-      if (depth < 3) for (const entry of entries) if (entry.isDirectory() && !entry.name.startsWith('.') && !skip.has(entry.name) && !['outboxes', 'receipts'].includes(entry.name)) await visit(relative ? relative + '/' + entry.name : entry.name, depth + 1);
+      for (const entry of entries) {
+        const match = entry.isFile() && entry.name.match(/^([\w-]+?)-to-([\w-]+)\.md$/i);
+        if (match) channels.push({ relative: (relative ? relative + '/' : '') + entry.name, from: match[1], to: match[2].replace(/-\d{4}-.*$/, '') });
+      }
+      if (depth < 5) for (const entry of entries) if (entry.isDirectory() && !skip.has(entry.name) && !['outboxes', 'receipts'].includes(entry.name)) await visit(relative ? relative + '/' + entry.name : entry.name, depth + 1);
     }
     await visit('', 0);
-    return found.filter(f => f.directory).sort((a, b) => (b.directory === 'mailboxes') - (a.directory === 'mailboxes') || b.files.length - a.files.length);
+    mailboxes.sort((a, b) => (b.directory === 'mailboxes') - (a.directory === 'mailboxes') || b.files.length - a.files.length);
+    return { mailboxes, channels };
   }
   async function previousConfiguration(repository) {
     const log = await gitIn(repository, ['log', '-n', '30', '--format=%H%x09%aI', '--', CONFIG_FILE]).catch(() => '');
@@ -271,27 +277,34 @@ export async function createDashboard(root, options = {}) {
     }
     return null;
   }
-  // Reconstructs participants from earlier configuration and existing mailboxes so setup can reuse them.
+  // Reconstructs participants from earlier configuration, existing mailboxes, and earlier channel files so setup can reuse them.
   async function discoverParticipants(repository) {
-    const history = await previousConfiguration(repository), directories = await findMailboxDirectories(repository);
-    const mailbox = directories.find(d => d.directory === history?.config.mailboxDirectory) || directories[0] || null;
-    if (!history && !mailbox) return null;
-    const people = new Map(), person = id => { if (!people.has(id)) people.set(id, { id, label: '', sent: 0, received: 0, reports: 0, hasMailbox: false }); return people.get(id); };
+    const history = await previousConfiguration(repository), { mailboxes, channels } = await scanExchangeFiles(repository);
+    const mailbox = mailboxes.find(d => d.directory === history?.config.mailboxDirectory) || mailboxes.find(d => d.directory) || mailboxes[0] || null;
+    const searched = { history: Boolean(history), mailboxFolders: mailboxes.map(d => d.directory || '.'), channelFiles: channels.length };
+    const people = new Map(), toId = name => name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z]+/, '').slice(0, 64);
+    const person = (id, label = '') => { if (!slug.test(id)) return null; if (!people.has(id)) people.set(id, { id, label, sent: 0, received: 0, reports: 0, messages: 0, hasMailbox: false }); const p = people.get(id); if (!p.label && label) p.label = label; return p; };
     for (const p of history?.config.participants || []) Object.assign(person(p.id), { label: p.label, ...(p.role ? { role: p.role } : {}), ...(p.reportTo ? { reportTo: p.reportTo } : {}), ...(p.aliases?.length ? { aliases: p.aliases } : {}) });
-    for (const file of mailbox?.files || []) {
-      person(file.id).hasMailbox = true;
+    for (const directory of mailboxes) for (const file of directory.files) {
+      const owner = person(file.id); if (directory === mailbox) owner.hasMailbox = true;
       const text = await readFile(path.join(repository, file.relative), 'utf8').catch(() => '');
-      for (const block of text.matchAll(/```json\n([\s\S]*?)\n```/g)) {
+      for (const block of text.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)) {
         let meta; try { meta = JSON.parse(block[1]); } catch { continue; }
-        if (typeof meta.from === 'string' && slug.test(meta.from)) person(meta.from).sent++;
-        if (typeof meta.to === 'string' && slug.test(meta.to)) { const to = person(meta.to); to.received++; if (meta.kind === 'report') to.reports++; }
+        const from = typeof meta.from === 'string' && person(meta.from), to = typeof meta.to === 'string' && person(meta.to);
+        if (from) { from.sent++; from.messages++; } if (to) { to.received++; to.messages++; if (meta.kind === 'report') to.reports++; }
       }
     }
-    const participants = [...people.values()].map(p => ({ ...p, label: p.label || p.id.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()) }));
+    for (const channel of channels) {
+      const from = person(toId(channel.from), channel.from), to = person(toId(channel.to), channel.to);
+      if (from) from.sent++; if (to) { to.received++; to.reports++; }
+    }
+    if (!people.size) return { participants: [], searched };
+    const participants = [...people.values()].map(p => ({ ...p, label: p.label && p.label !== p.id ? p.label : p.id.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()) }));
     const reportTargets = participants.flatMap(p => p.reportTo ? [p.reportTo] : []);
     const ranked = [...participants].sort((a, b) => b.reports - a.reports || reportTargets.filter(t => t === b.id).length - reportTargets.filter(t => t === a.id).length || b.received - a.received);
     const suggested = people.has(history?.config.identity) ? history.config.identity : ranked[0]?.id || null;
-    return { source: history ? 'history' : 'mailboxes', commit: history?.commit || null, date: history?.date || null, settings: history?.config || null, mailboxDirectory: mailbox?.directory || history?.config.mailboxDirectory || 'mailboxes', participants, suggestedIdentity: suggested };
+    const source = history ? 'history' : mailbox ? 'mailboxes' : 'channels';
+    return { source, commit: history?.commit || null, date: history?.date || null, settings: history?.config || null, mailboxDirectory: mailbox?.directory || history?.config.mailboxDirectory || 'mailboxes', channelFiles: channels.map(c => c.relative).slice(0, 20), participants, suggestedIdentity: suggested, searched };
   }
   async function gitInstalled() { return gitIn(appReal, ['--version']).then(() => true).catch(e => e.code !== 'ENOENT'); }
   async function inspectFolder(input) {

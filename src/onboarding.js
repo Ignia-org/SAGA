@@ -39,22 +39,23 @@ function agentRow(agent = { id: '', label: '', role: '' }) {
   </div>`;
 }
 function personRow(p, me) {
-  const locked = p.hasMailbox || p.sent || p.received, activity = [p.sent ? p.sent + ' sent' : '', p.received ? p.received + ' received' : ''].filter(Boolean).join(' · ');
+  const locked = p.hasMailbox || p.messages, activity = [p.sent ? p.sent + ' sent' : '', p.received ? p.received + ' received' : ''].filter(Boolean).join(' · ');
   return `<div class="setup-person" data-setup-person ${p.aliases ? `data-aliases="${esc(JSON.stringify(p.aliases))}"` : ''} ${p.reportTo ? `data-report-to="${esc(p.reportTo)}"` : ''}>
     <label class="setup-me"><input type="radio" name="setupMe" ${me ? 'checked' : ''} aria-label="This is me">This is me</label>
     <label class="setting-field">Display name<input data-agent="label" aria-label="Participant display name" placeholder="Display name" value="${esc(p.label || '')}"></label>
     <label class="setting-field">Participant ID<input data-agent="id" aria-label="Participant ID" placeholder="id" value="${esc(p.id || '')}" ${p.id ? '' : 'data-auto'} ${locked ? 'readonly title="Existing mailboxes use this ID"' : ''} spellcheck="false"></label>
     <label class="setting-field">Role (optional)<input data-agent="role" aria-label="Participant role" placeholder="Responsibilities in one sentence" value="${esc(p.role || '')}"></label>
-    ${locked ? `<span class="hint setup-activity">${esc(activity || 'Has a mailbox')}</span>` : '<button type="button" data-setup="remove-agent" aria-label="Remove participant">Remove</button>'}
+    ${locked ? `<span class="hint setup-activity">${esc(activity || 'Has a mailbox')}</span>` : (activity ? `<span class="hint setup-activity">${esc(activity)}</span>` : '') + '<button type="button" data-setup="remove-agent" aria-label="Remove participant">Remove</button>'}
   </div>`;
 }
 function discoveredSummary(d) {
   const count = d.participants.length + ' participant' + (d.participants.length === 1 ? '' : 's');
   if (d.source === 'history') return `<strong>Recovered from Git history.</strong> The last valid configuration (commit <code>${esc(d.commit.slice(0, 8))}</code>, ${esc(new Date(d.date).toLocaleDateString())}) lists ${count}. Names, roles and settings are restored; check who you are and confirm.`;
+  if (d.source === 'channels') return `<strong>Earlier exchange files found.</strong> ${d.searched.channelFiles} file${d.searched.channelFiles === 1 ? '' : 's'} named like <code>${esc(d.channelFiles[0].split('/').pop())}</code> mention ${count}. Check their names and choose which one is you. Those files stay in place for reference; new messages use structured mailboxes.`;
   return `<strong>Existing mailboxes found</strong> in <code>${esc(d.mailboxDirectory)}/</code> with ${count}. Display names are derived from their IDs; adjust them and choose which participant is you.`;
 }
 function renderCreateForm(x) {
-  const folderName = x.path.split(/[\\/]/).filter(Boolean).pop() || 'Team', d = x.discovered, settings = d?.settings;
+  const folderName = x.path.split(/[\\/]/).filter(Boolean).pop() || 'Team', d = x.discovered?.participants.length ? x.discovered : null, settings = d?.settings;
   const people = d ? `<h4>Participants</h4><p class="hint">Choose the participant that is you; the others are your agents. Participants that already have messages keep their ID. Suggested: <strong>${esc(d.participants.find(p => p.id === d.suggestedIdentity)?.label || '')}</strong>.</p>
     <div id="setupPeople">${d.participants.map(p => personRow(p, p.id === d.suggestedIdentity)).join('')}</div>
     <button type="button" data-setup="add-person">Add participant</button>`
@@ -63,7 +64,8 @@ function renderCreateForm(x) {
     <h4>Agents</h4><p class="hint">One participant per recurring agent, each with a stable ID used in its prompt. You can add more later.</p>
     <div id="setupAgents">${agentRow({ id: 'researcher', label: 'Researcher', role: '' })}</div>
     <button type="button" data-setup="add-agent">Add agent</button>`;
-  const intro = d ? box('info', discoveredSummary(d)) : x.workspace === 'empty' ? box('warn', esc(x.problem)) : '<p>This repository has no SAGA workspace yet. Describe who exchanges messages here; everything stays editable later in Settings.</p>';
+  const searched = x.discovered?.searched, nothingFound = searched ? `<p class="hint">SAGA looked for existing participants and found none: no earlier <code>exchange.config.json</code> in Git history, no mailbox folders (<code>outboxes/</code> or <code>receipts/</code>), and no exchange files named like <code>sender-to-recipient.md</code>. If this repository already holds your exchanges, check that you selected its root folder.</p>` : '';
+  const intro = d ? box('info', discoveredSummary(d)) : (x.workspace === 'empty' ? box('warn', esc(x.problem)) : '<p>This repository has no SAGA workspace yet. Describe who exchanges messages here; everything stays editable later in Settings.</p>') + nothingFound;
   return `<section class="card panel"><p class="caption">Step 2 of 2</p><h3>${d ? 'Restore the workspace' : 'Create the workspace'}</h3>
     ${intro}
     <div class="settings-grid">${settingsField('setupTitle', 'Workspace name', settings?.title || folderName.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()))}</div>
@@ -146,7 +148,7 @@ function discoveredConfig(value) {
 }
 function workspaceConfig() {
   const value = id => document.getElementById('setting-' + id).value.trim();
-  if (onboarding.inspection?.discovered) return discoveredConfig(value);
+  if (onboarding.inspection?.discovered?.participants.length) return discoveredConfig(value);
   const me = { id: value('setupIdentity'), label: value('setupLabel') || value('setupIdentity') };
   const agents = [...document.querySelectorAll('[data-setup-agent]')].map(row => {
     const field = name => row.querySelector(`[data-agent="${name}"]`).value.trim();

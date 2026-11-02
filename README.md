@@ -117,7 +117,7 @@ Describe who exchanges messages:
 
 ![Create the workspace: you, your agents, and Git synchronization](docs/screenshots/setup-workspace.png)
 
-If the repository already has mailboxes, or had a valid configuration earlier in its Git history (for example if `exchange.config.json` was emptied by mistake), SAGA finds the existing participants and fills the form for you. It restores names, roles, and settings when the history has them, and suggests which participant is you. Tick **This is me** on the right line and choose **Restore workspace**: existing messages are kept as they are.
+If the repository already has mailboxes or exchange files, or had a valid configuration earlier in its Git history (for example if `exchange.config.json` was emptied by mistake), SAGA finds the existing participants and fills the form for you. It restores names, roles, and settings when the history has them, and suggests which participant is you. Tick **This is me** on the right line and choose **Restore workspace**: existing messages are kept as they are.
 
 If Git does not know your name and email on this computer, the form asks for them. They are saved in that repository only and are used to sign SAGA's commits.
 
