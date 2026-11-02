@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { defaults } from './preferences.mjs';
-import { CONFIG_FILE, parseConfigText, hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidates, mailboxText, parseMailbox, recordHash, validateRecord } from './protocol.mjs';
+import { CONFIG_FILE, parseConfigText, slug, hash, loadConfig, validateConfig, safePath, readStore, cleanupCandidates, mailboxText, parseMailbox, recordHash, validateRecord } from './protocol.mjs';
 
 const exec = promisify(execFile), here = path.dirname(fileURLToPath(import.meta.url)), appRoot = path.resolve(here, '..');
 const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
@@ -245,6 +245,54 @@ export async function createDashboard(root, options = {}) {
     }
     return { commits };
   }
+  async function findMailboxDirectories(repository) {
+    const found = [], skip = new Set(['node_modules', '.git']);
+    async function visit(relative, depth) {
+      const entries = await readdir(path.join(repository, relative), { withFileTypes: true }).catch(() => []);
+      const names = new Set(entries.filter(e => e.isDirectory()).map(e => e.name));
+      if (names.has('outboxes') || names.has('receipts')) {
+        const files = [];
+        for (const category of ['outboxes', 'receipts']) if (names.has(category)) for (const file of await readdir(path.join(repository, relative, category), { withFileTypes: true }).catch(() => [])) {
+          const id = file.name.replace(/\.md$/, '');
+          if (file.isFile() && file.name.endsWith('.md') && slug.test(id)) files.push({ id, category, relative: relative + '/' + category + '/' + file.name });
+        }
+        if (files.length) found.push({ directory: relative, files });
+      }
+      if (depth < 3) for (const entry of entries) if (entry.isDirectory() && !entry.name.startsWith('.') && !skip.has(entry.name) && !['outboxes', 'receipts'].includes(entry.name)) await visit(relative ? relative + '/' + entry.name : entry.name, depth + 1);
+    }
+    await visit('', 0);
+    return found.filter(f => f.directory).sort((a, b) => (b.directory === 'mailboxes') - (a.directory === 'mailboxes') || b.files.length - a.files.length);
+  }
+  async function previousConfiguration(repository) {
+    const log = await gitIn(repository, ['log', '-n', '30', '--format=%H%x09%aI', '--', CONFIG_FILE]).catch(() => '');
+    for (const line of log.split('\n').filter(Boolean)) {
+      const [commit, date] = line.split('\t');
+      try { return { commit, date, config: parseConfigText(await gitIn(repository, ['show', commit + ':' + CONFIG_FILE])) }; } catch {}
+    }
+    return null;
+  }
+  // Reconstructs participants from earlier configuration and existing mailboxes so setup can reuse them.
+  async function discoverParticipants(repository) {
+    const history = await previousConfiguration(repository), directories = await findMailboxDirectories(repository);
+    const mailbox = directories.find(d => d.directory === history?.config.mailboxDirectory) || directories[0] || null;
+    if (!history && !mailbox) return null;
+    const people = new Map(), person = id => { if (!people.has(id)) people.set(id, { id, label: '', sent: 0, received: 0, reports: 0, hasMailbox: false }); return people.get(id); };
+    for (const p of history?.config.participants || []) Object.assign(person(p.id), { label: p.label, ...(p.role ? { role: p.role } : {}), ...(p.reportTo ? { reportTo: p.reportTo } : {}), ...(p.aliases?.length ? { aliases: p.aliases } : {}) });
+    for (const file of mailbox?.files || []) {
+      person(file.id).hasMailbox = true;
+      const text = await readFile(path.join(repository, file.relative), 'utf8').catch(() => '');
+      for (const block of text.matchAll(/```json\n([\s\S]*?)\n```/g)) {
+        let meta; try { meta = JSON.parse(block[1]); } catch { continue; }
+        if (typeof meta.from === 'string' && slug.test(meta.from)) person(meta.from).sent++;
+        if (typeof meta.to === 'string' && slug.test(meta.to)) { const to = person(meta.to); to.received++; if (meta.kind === 'report') to.reports++; }
+      }
+    }
+    const participants = [...people.values()].map(p => ({ ...p, label: p.label || p.id.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()) }));
+    const reportTargets = participants.flatMap(p => p.reportTo ? [p.reportTo] : []);
+    const ranked = [...participants].sort((a, b) => b.reports - a.reports || reportTargets.filter(t => t === b.id).length - reportTargets.filter(t => t === a.id).length || b.received - a.received);
+    const suggested = people.has(history?.config.identity) ? history.config.identity : ranked[0]?.id || null;
+    return { source: history ? 'history' : 'mailboxes', commit: history?.commit || null, date: history?.date || null, settings: history?.config || null, mailboxDirectory: mailbox?.directory || history?.config.mailboxDirectory || 'mailboxes', participants, suggestedIdentity: suggested };
+  }
   async function gitInstalled() { return gitIn(appReal, ['--version']).then(() => true).catch(e => e.code !== 'ENOENT'); }
   async function inspectFolder(input) {
     const target = expandPath(input), result = { path: target, exists: false, directory: false, empty: false, gitInstalled: await gitInstalled(), repository: null, isRepositoryRoot: false, isApplication: false, insideApplication: false, workspace: 'none', problem: null, title: null, identity: null, participants: [], remotes: [], branch: null, gitUser: { name: '', email: '' }, current: false };
@@ -272,6 +320,7 @@ export async function createDashboard(root, options = {}) {
               else result.workspace = 'valid';
             }
           } catch (e) { result.workspace = e.code === 'EMPTY_CONFIG' ? 'empty' : 'invalid'; result.problem = e.message; }
+          if (result.workspace !== 'valid') result.discovered = await discoverParticipants(real);
         }
       }
       if (result.gitInstalled) for (const key of ['name', 'email']) result.gitUser[key] = await gitIn(real, ['config', 'user.' + key]).catch(() => '');
@@ -345,15 +394,22 @@ export async function createDashboard(root, options = {}) {
         const changes = [{ relative: CONFIG_FILE, old: existing, next: JSON.stringify(config, null, 2) + '\n' }];
         for (const category of ['outboxes', 'receipts']) for (const p of config.participants) {
           const relative = `${config.mailboxDirectory}/${category}/${p.id}.md`;
-          if (await readFile(await safePath(nextRoot, relative), 'utf8').then(() => true).catch(() => false)) throw new Error(`${relative} already exists. Choose another mailbox directory, or restore ${CONFIG_FILE} from Git and open the workspace.`);
+          if (await readFile(await safePath(nextRoot, relative), 'utf8').then(() => true).catch(() => false)) continue;
           changes.push({ relative, old: null, next: mailboxText(p.id, category, []) });
         }
+        const mismatches = (await readStore(nextRoot, config)).errors.filter(e => !/directory is missing$/.test(e));
+        if (mismatches.length) throw new Error('Existing mailboxes do not match these participants. Keep every participant that already has a mailbox or messages.\n' + mismatches.join('\n'));
         root = nextRoot;
         await persist(changes, 'exchange: initialize workspace', config);
       } else {
         const config = await loadConfig(nextRoot), store = await readStore(nextRoot, config);
         if (store.errors.length) throw new Error(store.errors.join('\n'));
         root = nextRoot;
+        if (data.identity !== undefined && data.identity !== config.identity) {
+          if (!config.participants.some(p => p.id === data.identity)) throw new Error('Choose one of the configured participants.');
+          const old = await read(CONFIG_FILE), next = validateConfig({ ...config, identity: data.identity });
+          await persist([{ relative: CONFIG_FILE, old, next: JSON.stringify(next, null, 2) + '\n' }], 'exchange: update settings', next);
+        }
       }
       if (options.localSettings) {
         await mkdir(path.dirname(options.localSettings), { recursive: true });

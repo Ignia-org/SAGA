@@ -32,6 +32,10 @@ Interface refresh, the Git interval, branch fetching, and the receipt scan inter
 
 The **Browse…** buttons in setup and in Settings → Repository open a folder browser served by SAGA itself, because a web page cannot read local folder paths. It lists subfolders (hidden folders excluded), labels Git repositories and SAGA workspaces, and offers shortcuts to your home, Documents, Desktop, the folder containing SAGA, and drives on Windows. Paths typed manually must be absolute; `~` and surrounding quotes are accepted.
 
+When a repository has no usable configuration, setup looks for existing participants in two places. It reads the last valid `exchange.config.json` in Git history (up to 30 commits back), which also restores names, roles, aliases, report recipients, and settings. It also scans for mailbox folders (directories with `outboxes/` or `receipts/`, up to three levels deep) and collects their owners and every `from`/`to` in their messages. The suggested identity is the configured identity from history, otherwise the participant that receives the most reports. Initialization keeps existing mailbox files unchanged, creates only missing ones, and refuses a participant list that would leave existing mailboxes or messages without an owner. Existing mailbox files that are not yet committed stay uncommitted for you to review.
+
+When opening an existing workspace, setup lets you choose which participant you are. Choosing a different one updates `identity` in the shared configuration and commits it.
+
 The repository you open is remembered in `.saga/local.json` inside the SAGA folder. That file is ignored by Git and is never written to the communication repository. If the remembered folder no longer exists, or its configuration is missing, empty, or invalid, SAGA shows the setup screen with the reason.
 
 ## Git synchronization

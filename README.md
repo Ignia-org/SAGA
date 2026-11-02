@@ -105,7 +105,7 @@ SAGA then checks the folder and tells you what it found. If the folder is missin
 
 ![Clone an existing repository or start a new one](docs/screenshots/setup-repository.png)
 
-If the folder already contains a SAGA workspace, SAGA shows its name and participants, and you just choose **Open workspace**.
+If the folder already contains a SAGA workspace, SAGA shows its name and participants. Choose which participant you are, then **Open workspace**.
 
 ### 2. Create the workspace
 
@@ -116,6 +116,8 @@ Describe who exchanges messages:
 - **Git synchronization**: if the repository has a remote, you can let SAGA pull and push automatically. This is off unless you tick it, and you can change it later in Settings.
 
 ![Create the workspace: you, your agents, and Git synchronization](docs/screenshots/setup-workspace.png)
+
+If the repository already has mailboxes, or had a valid configuration earlier in its Git history (for example if `exchange.config.json` was emptied by mistake), SAGA finds the existing participants and fills the form for you. It restores names, roles, and settings when the history has them, and suggests which participant is you. Tick **This is me** on the right line and choose **Restore workspace**: existing messages are kept as they are.
 
 If Git does not know your name and email on this computer, the form asks for them. They are saved in that repository only and are used to sign SAGA's commits.
 

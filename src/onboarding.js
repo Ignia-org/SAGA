@@ -38,22 +38,42 @@ function agentRow(agent = { id: '', label: '', role: '' }) {
     <button type="button" data-setup="remove-agent" aria-label="Remove agent">Remove</button>
   </div>`;
 }
+function personRow(p, me) {
+  const locked = p.hasMailbox || p.sent || p.received, activity = [p.sent ? p.sent + ' sent' : '', p.received ? p.received + ' received' : ''].filter(Boolean).join(' · ');
+  return `<div class="setup-person" data-setup-person ${p.aliases ? `data-aliases="${esc(JSON.stringify(p.aliases))}"` : ''} ${p.reportTo ? `data-report-to="${esc(p.reportTo)}"` : ''}>
+    <label class="setup-me"><input type="radio" name="setupMe" ${me ? 'checked' : ''} aria-label="This is me">This is me</label>
+    <label class="setting-field">Display name<input data-agent="label" aria-label="Participant display name" placeholder="Display name" value="${esc(p.label || '')}"></label>
+    <label class="setting-field">Participant ID<input data-agent="id" aria-label="Participant ID" placeholder="id" value="${esc(p.id || '')}" ${p.id ? '' : 'data-auto'} ${locked ? 'readonly title="Existing mailboxes use this ID"' : ''} spellcheck="false"></label>
+    <label class="setting-field">Role (optional)<input data-agent="role" aria-label="Participant role" placeholder="Responsibilities in one sentence" value="${esc(p.role || '')}"></label>
+    ${locked ? `<span class="hint setup-activity">${esc(activity || 'Has a mailbox')}</span>` : '<button type="button" data-setup="remove-agent" aria-label="Remove participant">Remove</button>'}
+  </div>`;
+}
+function discoveredSummary(d) {
+  const count = d.participants.length + ' participant' + (d.participants.length === 1 ? '' : 's');
+  if (d.source === 'history') return `<strong>Recovered from Git history.</strong> The last valid configuration (commit <code>${esc(d.commit.slice(0, 8))}</code>, ${esc(new Date(d.date).toLocaleDateString())}) lists ${count}. Names, roles and settings are restored; check who you are and confirm.`;
+  return `<strong>Existing mailboxes found</strong> in <code>${esc(d.mailboxDirectory)}/</code> with ${count}. Display names are derived from their IDs; adjust them and choose which participant is you.`;
+}
 function renderCreateForm(x) {
-  const folderName = x.path.split(/[\\/]/).filter(Boolean).pop() || 'Team';
-  return `<section class="card panel"><p class="caption">Step 2 of 2</p><h3>Create the workspace</h3>
-    ${x.workspace === 'empty' ? box('warn', esc(x.problem) + '<p class="hint">If this repository already had a workspace, restore the file from Git instead (for example <code>git checkout -- exchange.config.json</code>) and check the folder again.</p>') : '<p>This repository has no SAGA workspace yet. Describe who exchanges messages here; everything stays editable later in Settings.</p>'}
-    <div class="settings-grid">${settingsField('setupTitle', 'Workspace name', folderName.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()))}</div>
-    <h4>You</h4><p class="hint">Your identity in SAGA. Agents send their reports and questions to this participant.</p>
+  const folderName = x.path.split(/[\\/]/).filter(Boolean).pop() || 'Team', d = x.discovered, settings = d?.settings;
+  const people = d ? `<h4>Participants</h4><p class="hint">Choose the participant that is you; the others are your agents. Participants that already have messages keep their ID. Suggested: <strong>${esc(d.participants.find(p => p.id === d.suggestedIdentity)?.label || '')}</strong>.</p>
+    <div id="setupPeople">${d.participants.map(p => personRow(p, p.id === d.suggestedIdentity)).join('')}</div>
+    <button type="button" data-setup="add-person">Add participant</button>`
+    : `<h4>You</h4><p class="hint">Your identity in SAGA. Agents send their reports and questions to this participant.</p>
     <div class="settings-grid">${settingsField('setupLabel', 'Your display name', 'Operator')}${settingsField('setupIdentity', 'Your participant ID', 'operator', 'text', 'Lowercase letters, digits, - or _. It cannot be renamed once messages exist.')}</div>
     <h4>Agents</h4><p class="hint">One participant per recurring agent, each with a stable ID used in its prompt. You can add more later.</p>
     <div id="setupAgents">${agentRow({ id: 'researcher', label: 'Researcher', role: '' })}</div>
-    <button type="button" data-setup="add-agent">Add agent</button>
+    <button type="button" data-setup="add-agent">Add agent</button>`;
+  const intro = d ? box('info', discoveredSummary(d)) : x.workspace === 'empty' ? box('warn', esc(x.problem)) : '<p>This repository has no SAGA workspace yet. Describe who exchanges messages here; everything stays editable later in Settings.</p>';
+  return `<section class="card panel"><p class="caption">Step 2 of 2</p><h3>${d ? 'Restore the workspace' : 'Create the workspace'}</h3>
+    ${intro}
+    <div class="settings-grid">${settingsField('setupTitle', 'Workspace name', settings?.title || folderName.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase()))}</div>
+    ${people}
     <h4>Git synchronization</h4>
-    ${x.remotes.length ? settingsToggle('setupAutoSync', 'Pull and push automatically with ' + x.remotes[0], false, 'Agents on other computers see your messages without manual pushes. Off by default; change it any time in Settings.') : '<p class="hint">This repository has no Git remote. SAGA works locally; add a remote later (for example on GitHub) to exchange with agents on other computers.</p>'}
-    <details class="setup-advanced"><summary>Advanced</summary>${settingsField('setupDirectory', 'Mailbox directory', 'mailboxes', 'text', 'Repository-relative folder holding one outbox and one receipt file per participant.')}</details>
+    ${x.remotes.length ? settingsToggle('setupAutoSync', 'Pull and push automatically with ' + x.remotes[0], Boolean(settings?.autoPull && settings?.autoPush), 'Agents on other computers see your messages without manual pushes. Off by default; change it any time in Settings.') : '<p class="hint">This repository has no Git remote. SAGA works locally; add a remote later (for example on GitHub) to exchange with agents on other computers.</p>'}
+    <details class="setup-advanced"><summary>Advanced</summary>${settingsField('setupDirectory', 'Mailbox directory', d?.mailboxDirectory || 'mailboxes', 'text', 'Repository-relative folder holding one outbox and one receipt file per participant.')}</details>
     ${identityFields(x)}
-    <div class="actions"><button class="primary" type="button" data-setup="initialize">Create workspace</button></div>
-    <p class="hint">Creates <code>exchange.config.json</code> and empty mailboxes, then commits them locally on branch ${esc(x.branch || '(new)')}.</p>
+    <div class="actions"><button class="primary" type="button" data-setup="initialize">${d ? 'Restore workspace' : 'Create workspace'}</button></div>
+    <p class="hint">${d ? 'Writes <code>exchange.config.json</code>, keeps existing mailboxes unchanged, creates missing ones,' : 'Creates <code>exchange.config.json</code> and empty mailboxes,'} then commits them locally on branch ${esc(x.branch || '(new)')}.</p>
   </section>`;
 }
 function renderInspection(x) {
@@ -74,11 +94,14 @@ function renderInspection(x) {
   if (x.workspace === 'valid') {
     const me = x.participants.find(p => p.id === x.identity);
     return `<section class="card panel"><h3>Workspace found: ${esc(x.title)}</h3>
-      <p>${x.participants.length} participants: ${x.participants.map(p => esc(p.label)).join(', ')}. You operate as <strong>${esc(me?.label || x.identity)}</strong>${x.branch ? ' on branch ' + esc(x.branch) : ''}.</p>
+      <p>${x.participants.length} participants: ${x.participants.map(p => esc(p.label)).join(', ')}${x.branch ? ', on branch ' + esc(x.branch) : ''}.</p>
+      <div class="settings-grid">${settingsChoice('openIdentity', 'You are', x.identity, x.participants.map(p => [p.id, p.label + ' (' + p.id + ')']))}</div>
+      <p class="hint">The workspace is set up for <strong>${esc(me?.label || x.identity)}</strong>. Choosing someone else updates the shared workspace configuration and commits it.</p>
       ${identityFields(x)}<div class="actions"><button class="primary" type="button" data-setup="open">Open workspace</button></div>
       <p class="hint">SAGA remembers this folder on this computer.</p></section>`;
   }
   if (x.workspace === 'invalid') return `<section class="card panel"><h3>This workspace cannot be opened</h3>${box('warn', esc(x.problem))}
+    ${x.discovered?.commit ? `<p>A valid version exists in Git history (${esc(new Date(x.discovered.date).toLocaleDateString())}). To restore it, run in the repository:</p><pre class="setup-command">git checkout ${esc(x.discovered.commit.slice(0, 12))} -- exchange.config.json</pre>` : ''}
     <p class="hint">Fix the file in the repository or restore it from Git, then check again. A recent pull may also have brought an incomplete change.</p><div class="actions"><button type="button" data-setup="recheck">Check again</button></div></section>`;
   if (x.isApplication || x.insideApplication) return box('warn', '<strong>This is the SAGA application folder.</strong><p>Choose or create a separate repository for your messages.</p>');
   return renderCreateForm(x);
@@ -100,8 +123,30 @@ function gitIdentity() {
   const name = document.getElementById('setting-gitName'), email = document.getElementById('setting-gitEmail');
   return name && email ? { name: name.value.trim(), email: email.value.trim() } : undefined;
 }
+function discoveredConfig(value) {
+  const d = onboarding.inspection.discovered, rows = [...document.querySelectorAll('[data-setup-person]')];
+  const mine = rows.find(row => row.querySelector('[name="setupMe"]').checked);
+  if (!mine) throw new Error('Choose which participant is you.');
+  const read = (row, name) => row.querySelector(`[data-agent="${name}"]`).value.trim();
+  const people = rows.map(row => {
+    const person = { id: read(row, 'id') || slugify(read(row, 'label')), label: read(row, 'label') || read(row, 'id') };
+    if (read(row, 'role')) person.role = read(row, 'role');
+    if (row.dataset.aliases) person.aliases = JSON.parse(row.dataset.aliases);
+    if (row.dataset.reportTo) person.reportTo = row.dataset.reportTo;
+    return { row, person };
+  }).filter(x => x.person.id || x.person.label);
+  const identity = people.find(x => x.row === mine)?.person.id, ids = new Set(people.map(x => x.person.id));
+  for (const { person } of people) {
+    if (person.reportTo && (person.reportTo === person.id || !ids.has(person.reportTo))) delete person.reportTo;
+    if (!person.reportTo && person.id !== identity && d.source !== 'history') person.reportTo = identity;
+  }
+  const { participants, identity: _identity, title, mailboxDirectory, schema, ...settings } = d.settings || {};
+  const sync = document.getElementById('setting-setupAutoSync')?.checked === true;
+  return { ...settings, schema: 1, title: value('setupTitle'), identity, participants: people.map(x => x.person), mailboxDirectory: value('setupDirectory') || 'mailboxes', cleanup: settings.cleanup || 'approval', autoPull: sync, autoPush: sync, syncAfterWrite: sync || Boolean(settings.syncAfterWrite) };
+}
 function workspaceConfig() {
   const value = id => document.getElementById('setting-' + id).value.trim();
+  if (onboarding.inspection?.discovered) return discoveredConfig(value);
   const me = { id: value('setupIdentity'), label: value('setupLabel') || value('setupIdentity') };
   const agents = [...document.querySelectorAll('[data-setup-agent]')].map(row => {
     const field = name => row.querySelector(`[data-agent="${name}"]`).value.trim();
@@ -139,7 +184,7 @@ document.getElementById('feed').addEventListener('submit', e => {
   }
 });
 document.getElementById('feed').addEventListener('input', e => {
-  const row = e.target.closest('[data-setup-agent]'); if (!row) return;
+  const row = e.target.closest('[data-setup-agent],[data-setup-person]'); if (!row) return;
   const id = row.querySelector('[data-agent="id"]');
   if (e.target === id) id.removeAttribute('data-auto');
   else if (e.target.dataset.agent === 'label' && id.hasAttribute('data-auto')) id.value = slugify(e.target.value);
@@ -149,12 +194,13 @@ document.getElementById('feed').addEventListener('click', e => {
   const x = onboarding.inspection, action = button.dataset.setup;
   if (button.dataset.welcome === 'push') { document.getElementById('pushHeader').click(); return; }
   if (action === 'add-agent') { document.getElementById('setupAgents').insertAdjacentHTML('beforeend', agentRow()); document.querySelector('[data-setup-agent]:last-child [data-agent="label"]').focus(); }
-  if (action === 'remove-agent') button.closest('[data-setup-agent]').remove();
+  if (action === 'add-person') { document.getElementById('setupPeople').insertAdjacentHTML('beforeend', personRow({ id: '', label: '' }, false)); document.querySelector('[data-setup-person]:last-child [data-agent="label"]').focus(); }
+  if (action === 'remove-agent') button.closest('[data-setup-agent],[data-setup-person]').remove();
   if (action === 'recheck') inspectFolder(x.path);
   if (action === 'use-top') inspectFolder(x.repository);
   if (action === 'create') setupCall('Creating repository…', async () => showInspection(await api('prepare', { action: 'create', root: x.path })));
-  if (action === 'open') setupCall('Opening workspace…', () => mutate('workspace', { root: x.path, gitIdentity: gitIdentity() }));
-  if (action === 'initialize') setupCall('Creating workspace…', () => mutate('workspace', { root: x.path, initialize: true, config: workspaceConfig(), gitIdentity: gitIdentity() }));
+  if (action === 'open') setupCall('Opening workspace…', () => mutate('workspace', { root: x.path, gitIdentity: gitIdentity(), identity: document.getElementById('setting-openIdentity')?.value }));
+  if (action === 'initialize') { let config; try { config = workspaceConfig(); } catch (error) { notice(error.message); return; } setupCall('Creating workspace…', () => mutate('workspace', { root: x.path, initialize: true, config, gitIdentity: gitIdentity() })); }
 });
 
 // Folder picker: browsers cannot reveal local absolute paths, so the local server lists folders instead.

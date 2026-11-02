@@ -358,3 +358,32 @@ test('folder browser lists subfolders and marks repositories and workspaces',asy
     assert.equal((await app.call('folders',{path:'relative'})).status,409);
   }finally{if(app)await app.stop();await f.dispose();}
 });
+test('setup discovers participants from Git history and existing mailboxes and suggests an identity',async()=>{
+  const f=await fixture(),g=await fixture();let app;
+  try{
+    app=await start(f.root);
+    // An emptied configuration is recovered from the last valid committed version.
+    await writeFile(path.join(f.root,'exchange.config.json'),'');git(f.root,'commit','-qam','emptied by mistake');
+    let x=await (await app.call('inspect',{root:f.root})).json();
+    assert.equal(x.workspace,'empty');assert.equal(x.discovered.source,'history');assert.equal(x.discovered.suggestedIdentity,'coordinator');
+    assert.deepEqual(x.discovered.participants.map(p=>p.id).sort(),['coordinator','researcher','reviewer']);assert.equal(x.discovered.settings.commitPrefix,'exchange');
+    // Without any configuration history, participants come from mailbox files and message metadata.
+    const report={meta:{...meta('m-report','researcher','coordinator'),kind:'report'},body:'Done.'},question={meta:meta('m-question','reviewer','researcher'),body:'Which source?'};
+    await writeFile(path.join(g.root,'mailboxes','outboxes','researcher.md'),mailboxText('researcher','outboxes',[report]));
+    await writeFile(path.join(g.root,'mailboxes','outboxes','reviewer.md'),mailboxText('reviewer','outboxes',[question]));
+    await rm(path.join(g.root,'.git'),{recursive:true,force:true});await rm(path.join(g.root,'exchange.config.json'));
+    git(g.root,'init','-q');git(g.root,'config','user.email','test@example.com');git(g.root,'config','user.name','Test');git(g.root,'add','.');git(g.root,'commit','-qm','mailboxes without configuration');
+    x=await (await app.call('inspect',{root:g.root})).json();
+    assert.equal(x.workspace,'missing');assert.equal(x.discovered.source,'mailboxes');assert.equal(x.discovered.mailboxDirectory,'mailboxes');
+    assert.equal(x.discovered.suggestedIdentity,'coordinator');assert.equal(x.discovered.participants.find(p=>p.id==='researcher').label,'Researcher');
+    const participants=x.discovered.participants.map(p=>({id:p.id,label:p.label}));
+    const partial={schema:1,title:'Recovered',identity:'coordinator',participants:participants.filter(p=>p.id!=='reviewer'),mailboxDirectory:'mailboxes',cleanup:'approval'};
+    const refused=await app.call('workspace',{root:g.root,initialize:true,config:partial});assert.equal(refused.status,409);assert.match((await refused.json()).error,/Existing mailboxes do not match/);
+    assert.equal((await app.call('workspace',{root:g.root,initialize:true,config:{...partial,participants}})).status,200);
+    let state=await app.state();assert.equal(state.errors.length,0);assert.deepEqual(state.messages.map(m=>m.meta.id).sort(),['m-question','m-report']);
+    // Opening an existing workspace can switch the operating identity.
+    assert.equal((await app.call('workspace',{root:g.root,identity:'nobody'})).status,409);
+    assert.equal((await app.call('workspace',{root:g.root,identity:'reviewer'})).status,200);
+    state=await app.state();assert.equal(state.config.identity,'reviewer');assert.equal(git(g.root,'status','--porcelain'),'');
+  }finally{if(app)await app.stop();await f.dispose();await g.dispose();}
+});
