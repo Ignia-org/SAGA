@@ -16,8 +16,8 @@ function renderOnboarding() {
       <p class="caption">Step 1 of 2</p>
       <h3>Where is your communication repository?</h3>
       <p>SAGA keeps messages as Markdown files in a Git repository that you own, separate from the SAGA application folder${state.appRoot ? ' (<code>' + esc(state.appRoot) + '</code>)' : ''}.</p>
-      <p class="hint">Enter the absolute path of that repository on this computer. If it is not on this computer yet, enter the folder where it should go: SAGA can clone it or create a new one.</p>
-      <form class="path-row" data-setup-form="inspect"><input id="setup-root" aria-label="Repository folder" placeholder="${esc(examplePath())}" value="${esc(state.suggestedRoot || '')}" autocomplete="off" spellcheck="false"><button class="primary" type="submit">Check folder</button></form>
+      <p class="hint">Choose the repository folder on this computer with <strong>Browse</strong>, or paste its path. If it is not on this computer yet, choose where it should go: SAGA can clone it or create a new one.</p>
+      <form class="path-row" data-setup-form="inspect"><input id="setup-root" aria-label="Repository folder" placeholder="${esc(examplePath())}" value="${esc(state.suggestedRoot || '')}" autocomplete="off" spellcheck="false"><button type="button" data-browse="setup-root" data-browse-then="inspect">Browse…</button><button class="primary" type="submit">Check folder</button></form>
       <div id="setupStatus" class="hint" role="status"></div>
     </section>
     <div id="setupResult"></div>
@@ -125,7 +125,7 @@ function renderWelcome() {
   return `<section class="card panel welcome"><h3>Your workspace is ready</h3><p>Messages addressed to you will appear here. To get your agents working:</p><ol>
     <li><strong>Share the repository.</strong> ${share}</li>
     <li><strong>Install the SAGA skill</strong> once in this repository, then commit and push it. Skip this if <code>.agents/skills/saga-mailbox</code> already exists.<pre>${esc(command)}</pre></li>
-    <li><strong>Schedule each agent</strong> on its own checkout of this repository with its participant ID${agents.length ? ' (' + agents.map(p => '<code>' + esc(p.id) + '</code>').join(', ') + ')' : ''} and a recurring prompt. The <a href="https://github.com/Ignia-org/SAGA#getting-started" target="_blank" rel="noopener noreferrer">getting started guide</a> has prompts for ChatGPT/Codex and Claude.</li>
+    <li><strong>Schedule each agent</strong> on its own checkout of this repository with its participant ID${agents.length ? ' (' + agents.map(p => '<code>' + esc(p.id) + '</code>').join(', ') + ')' : ''} and a recurring prompt. The <a href="https://github.com/Ignia-org/SAGA#connect-your-agents" target="_blank" rel="noopener noreferrer">setup guide</a> has prompts for ChatGPT/Codex and Claude.</li>
     <li><strong>Send a first request</strong> with New message${agents.length ? '' : ' after adding an agent in Settings'}.</li>
   </ol></section>`;
 }
@@ -155,4 +155,71 @@ document.getElementById('feed').addEventListener('click', e => {
   if (action === 'create') setupCall('Creating repository…', async () => showInspection(await api('prepare', { action: 'create', root: x.path })));
   if (action === 'open') setupCall('Opening workspace…', () => mutate('workspace', { root: x.path, gitIdentity: gitIdentity() }));
   if (action === 'initialize') setupCall('Creating workspace…', () => mutate('workspace', { root: x.path, initialize: true, config: workspaceConfig(), gitIdentity: gitIdentity() }));
+});
+
+// Folder picker: browsers cannot reveal local absolute paths, so the local server lists folders instead.
+const picker = { path: null, separator: '/', input: null, then: null, sequence: 0 };
+const folderIcon = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>';
+function ensureFolderPicker() {
+  if (document.getElementById('folderPicker')) return;
+  document.body.insertAdjacentHTML('beforeend', `<dialog id="folderPicker" aria-label="Choose a folder"><div class="picker-heading"><h3>Choose a folder</h3><button type="button" data-picker="cancel" aria-label="Close">Close</button></div>
+    <div id="pickerShortcuts" class="picker-shortcuts"></div>
+    <form class="picker-location" data-picker-form><button type="button" data-picker="up" title="Parent folder" aria-label="Parent folder">↑</button><input id="pickerPath" aria-label="Current folder" spellcheck="false" autocomplete="off"><button type="submit">Go</button></form>
+    <div id="pickerList" class="picker-list" aria-label="Folders"></div>
+    <p id="pickerError" class="setup-box warn" hidden></p>
+    <label class="setting-field">New folder name (optional)<input id="pickerNewName" placeholder="team-docs" spellcheck="false" autocomplete="off"><span class="hint">To clone or start a repository, choose where it goes and name the new folder here. SAGA creates it only when you confirm the next step.</span></label>
+    <div class="actions picker-actions"><span id="pickerTarget" class="hint"></span><button type="button" data-picker="cancel">Cancel</button><button type="button" class="primary" data-picker="select">Select this folder</button></div></dialog>`);
+  const dialog = document.getElementById('folderPicker');
+  dialog.addEventListener('submit', e => { e.preventDefault(); browseTo(document.getElementById('pickerPath').value); });
+  dialog.addEventListener('input', e => { if (e.target.id === 'pickerNewName') updatePickerTarget(); });
+  dialog.addEventListener('click', e => {
+    const button = e.target.closest('button'); if (!button) return;
+    if (button.dataset.pickerOpen) browseTo(button.dataset.pickerOpen);
+    if (button.dataset.picker === 'up' && picker.parent) browseTo(picker.parent);
+    if (button.dataset.picker === 'cancel') dialog.close();
+    if (button.dataset.picker === 'select') {
+      const chosen = pickerTarget(); if (!chosen) return;
+      const input = document.getElementById(picker.input); if (input) input.value = chosen;
+      dialog.close(); if (picker.then === 'inspect') inspectFolder(chosen);
+    }
+  });
+}
+function pickerTarget() {
+  const name = document.getElementById('pickerNewName').value.trim(), error = document.getElementById('pickerError');
+  if (!picker.path) return null;
+  if (!name) return picker.path;
+  if (/[\\/:*?"<>|]/.test(name) || name === '.' || name === '..') { error.hidden = false; error.textContent = 'A folder name cannot contain \\ / : * ? " < > |.'; return null; }
+  return picker.path.replace(/[\\/]+$/, '') + picker.separator + name;
+}
+function updatePickerTarget() {
+  const name = document.getElementById('pickerNewName').value.trim();
+  document.getElementById('pickerError').hidden = true;
+  document.getElementById('pickerTarget').textContent = picker.path ? 'Selection: ' + (name ? picker.path.replace(/[\\/]+$/, '') + picker.separator + name : picker.path) : '';
+}
+async function browseTo(target) {
+  const sequence = ++picker.sequence, list = document.getElementById('pickerList'), error = document.getElementById('pickerError');
+  list.setAttribute('aria-busy', 'true');
+  try {
+    const result = await api('folders', target ? { path: target } : {});
+    if (sequence !== picker.sequence) return;
+    Object.assign(picker, { path: result.path, parent: result.parent, separator: result.separator });
+    error.hidden = true; document.getElementById('pickerPath').value = result.path;
+    document.querySelector('#folderPicker [data-picker="up"]').disabled = !result.parent;
+    document.getElementById('pickerShortcuts').innerHTML = result.shortcuts.map(s => `<button type="button" data-picker-open="${esc(s.path)}">${esc(s.label)}</button>`).join('');
+    list.innerHTML = result.folders.map(f => `<button type="button" data-picker-open="${esc(f.path)}">${folderIcon}<span>${esc(f.name)}</span>${f.workspace ? '<span class="badge">SAGA workspace</span>' : f.git ? '<span class="badge">Git repository</span>' : ''}</button>`).join('')
+      + (result.truncated ? '<p class="hint">Only the first 500 folders are listed. Type a path above to go further.</p>' : '')
+      || '<p class="hint picker-empty">No subfolders here.</p>';
+    list.scrollTop = 0; updatePickerTarget();
+  } catch (e) { if (sequence === picker.sequence) { error.hidden = false; error.textContent = e.message; } }
+  finally { list.removeAttribute('aria-busy'); }
+}
+function openFolderPicker(inputId, then) {
+  ensureFolderPicker(); Object.assign(picker, { input: inputId, then });
+  document.getElementById('pickerNewName').value = '';
+  document.getElementById('folderPicker').showModal();
+  browseTo(document.getElementById(inputId)?.value.trim() || '');
+}
+document.addEventListener('click', e => {
+  const button = e.target.closest('[data-browse]'); if (!button) return;
+  e.preventDefault(); openFolderPicker(button.dataset.browse, button.dataset.browseThen);
 });

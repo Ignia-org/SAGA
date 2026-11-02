@@ -278,6 +278,28 @@ export async function createDashboard(root, options = {}) {
     }
     return result;
   }
+  async function listFolders(input) {
+    const home = os.homedir(), isDirectory = async folder => Boolean((await stat(folder).catch(() => null))?.isDirectory());
+    const shortcuts = [{ label: 'Home', path: home }];
+    for (const name of ['Documents', 'Desktop']) if (await isDirectory(path.join(home, name))) shortcuts.push({ label: name, path: path.join(home, name) });
+    shortcuts.push({ label: 'Next to SAGA', path: path.dirname(appReal) });
+    if (process.platform === 'win32') for (const letter of 'CDEFGHIJKLMNOPQRSTUVWXYZ') { const drive = letter + ':\\'; if (await isDirectory(drive)) shortcuts.push({ label: drive, path: drive }); }
+    let target = input ? expandPath(input) : home;
+    while (!await isDirectory(target) && path.dirname(target) !== target) target = path.dirname(target);
+    target = await realpath(target);
+    const entries = await readdir(target, { withFileTypes: true }).catch(e => { throw new Error(e.code === 'EACCES' || e.code === 'EPERM' ? 'SAGA cannot open this folder: permission denied.' : e.message); });
+    const folders = [];
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || folders.length >= 500) continue;
+      const full = path.join(target, entry.name);
+      if (!entry.isDirectory() && !(entry.isSymbolicLink() && await isDirectory(full))) continue;
+      const [git, workspace] = await Promise.all([stat(path.join(full, '.git')).then(() => true, () => false), stat(path.join(full, CONFIG_FILE)).then(() => true, () => false)]);
+      folders.push({ name: entry.name, path: full, git, workspace });
+    }
+    folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+    const parent = path.dirname(target);
+    return { path: target, parent: parent === target ? null : parent, separator: path.sep, folders, shortcuts, truncated: folders.length >= 500 };
+  }
   async function prepareFolder(data) {
     const target = expandPath(data.root);
     if (insidePath(target, appReal)) throw new Error('Choose a folder outside the SAGA application folder. SAGA keeps your messages in a separate repository.');
@@ -397,6 +419,7 @@ export async function createDashboard(root, options = {}) {
         return { ...result, url: '/files/pdf/' + ticket };
       }));
       if (url.pathname === '/api/history') return send(200, await locked(() => history(data)));
+      if (url.pathname === '/api/folders') return send(200, await listFolders(data.path));
       if (url.pathname === '/api/inspect') return send(200, await inspectFolder(data.root));
       if (url.pathname === '/api/prepare') return send(200, await prepareFolder(data));
       const result = await locked(async () => {

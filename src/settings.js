@@ -16,7 +16,7 @@ function renderSettings(c) {
   const statuses=['untriaged','open','in_progress','waiting','blocked','done'].map(v=>[v,v]);
   return `<form id="settingsForm">
     <section class="card panel"><h3>Repository</h3><p class="hint">SAGA runs separately from the repository holding your messages. Opening another workspace does not move its data.</p>
-      <div class="settings-grid">${settingsField('root','Repository path',state.workspaceRoot)}<div class="setting-field"><span>Workspace selection</span><button id="openWorkspace" type="button">Open this repository</button></div></div>
+      <div class="settings-grid">${settingsField('root','Repository path',state.workspaceRoot)}<div class="setting-field"><span>Workspace selection</span><div class="pair"><button type="button" data-browse="setting-root">Browse…</button><button id="openWorkspace" type="button">Open this repository</button></div></div></div>
       <p class="hint">Active branch: ${esc(state.branch)} · available remotes: ${esc(state.remotes?.join(', ')||'none')}${state.publicationHold?' · publication is held in local Git configuration':''}</p>
     </section>
     <section class="card panel"><h3>Workspace and participants</h3><div class="settings-grid">

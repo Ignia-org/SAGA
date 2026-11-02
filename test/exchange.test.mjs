@@ -346,3 +346,15 @@ test('onboarding clones or creates repositories and records a local Git identity
     assert.equal(git(created,'config','--local','user.email'),'new@example.com');assert.equal(git(created,'log','-1','--format=%an'),'New Computer');
   }finally{if(app)await app.stop();await f.dispose();}
 });
+test('folder browser lists subfolders and marks repositories and workspaces',async()=>{
+  const f=await fixture();let app;
+  try{
+    app=await start(f.root);await mkdir(path.join(f.temp,'plain'));await mkdir(path.join(f.temp,'.hidden'));
+    const response=await app.call('folders',{path:f.temp});assert.equal(response.status,200);const listing=await response.json();
+    const real=await (await import('node:fs/promises')).realpath(f.temp);assert.equal(listing.path,real);assert.equal(listing.parent,path.dirname(real));
+    assert.deepEqual(listing.folders.map(x=>[x.name,x.git,x.workspace]),[['plain',false,false],['root',true,true]]);
+    assert.ok(listing.shortcuts.some(s=>s.label==='Home'));
+    const missing=await (await app.call('folders',{path:path.join(f.temp,'not-yet','deeper')})).json();assert.equal(missing.path,real);
+    assert.equal((await app.call('folders',{path:'relative'})).status,409);
+  }finally{if(app)await app.stop();await f.dispose();}
+});
