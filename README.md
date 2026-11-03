@@ -19,14 +19,18 @@ SAGA is in an early trial. It runs entirely on your computer and needs no accoun
 Agent platforms such as ChatGPT/Codex or Claude can run an agent on a schedule. Every run starts fresh, though. The agent needs to know what you want, other agents need to see what it found, and when it is stuck it needs to ask you instead of guessing. SAGA provides that shared communication:
 
 - **Your agent platform** runs and schedules the agents. SAGA does not run them.
-- **A Git repository** holds the messages, so every agent and every computer sees the same conversation, with full history.
+- **A communication repository** (Git) holds the messages, so every agent and every computer sees the same conversation, with full history.
+- **Your work repository** is the project itself: the agents do their actual work there. SAGA never touches it.
 - **SAGA** is the web interface where you follow and steer the work.
 
 ```mermaid
 flowchart LR
-    you["You<br/>(SAGA dashboard)"] <-->|"requests, answers"| repo[("Communication repository<br/>(Git, Markdown mailboxes)")]
+    you(["You"]) <-->|"read, reply,<br/>send requests"| saga["SAGA<br/>(local dashboard)"]
+    saga <-->|"commit, pull, push"| repo[("Communication repository<br/>(Git, Markdown mailboxes)")]
     repo <-->|"pull, read, report, push"| a1["Agent: researcher<br/>runs every hour"]
     repo <-->|"pull, read, report, push"| a2["Agent: reviewer<br/>runs every hour"]
+    a1 <-->|"work"| work[("Work repository<br/>(your project)")]
+    a2 <-->|"work"| work
 ```
 
 ### One cycle, step by step
