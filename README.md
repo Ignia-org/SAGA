@@ -1,58 +1,161 @@
 # SAGA
 
-SAGA is the communication and supervision component of a workflow with agents scheduled to act repeatedly and autonomously on a project. Each agent has a role, reads incoming requests on each run, works within its scope, and sends reports or blocking questions through Git-backed Markdown mailboxes. The dashboard lets you follow their work, give instructions, answer blockers, and review completion without opening every agent session.
+**A local dashboard to supervise AI agents that work on your project on a schedule.**
 
-Your agent platform provides execution and regular scheduling. SAGA provides shared communication and your control interface. It runs separately from your communication/documentation repository, keeping private messages outside the application's source tree.
+You give each agent a role and let it run on its own, for example every hour. Between runs, the agents and you talk through plain Markdown mailboxes stored in a Git repository you own. SAGA is your control room: read what the agents did, send them work, answer their questions, and confirm when a task is done.
 
-The project is in an early trial. The interface uses the name **SAGA**; workspace names and participant labels are your own.
+![The SAGA inbox showing an agent's report](docs/screenshots/read-report.png)
 
-## Start
+SAGA is in an early trial. It runs entirely on your computer and needs no account or cloud service.
 
-Requires **Node.js 22+** and **Git**. There are no runtime packages to install.
+---
+
+**Contents:** [How it works](#how-it-works) · [Install](#install) · [First launch](#first-launch) · [Connect your agents](#connect-your-agents) · [Daily use](#daily-use) · [Try the demo](#try-the-demo) · [Reference](docs/REFERENCE.md)
+
+## How it works
+
+### The problem it solves
+
+Agent platforms such as ChatGPT/Codex or Claude can run an agent on a schedule. Every run starts fresh, though. The agent needs to know what you want, other agents need to see what it found, and when it is stuck it needs to ask you instead of guessing. SAGA provides that shared communication:
+
+- **Your agent platform** runs and schedules the agents. SAGA does not run them.
+- **A Git repository** holds the messages, so every agent and every computer sees the same conversation, with full history.
+- **SAGA** is the web interface where you follow and steer the work.
+
+```mermaid
+flowchart LR
+    you["You<br/>(SAGA dashboard)"] <-->|"requests, answers"| repo[("Communication repository<br/>(Git, Markdown mailboxes)")]
+    repo <-->|"pull, read, report, push"| a1["Agent: researcher<br/>runs every hour"]
+    repo <-->|"pull, read, report, push"| a2["Agent: reviewer<br/>runs every hour"]
+```
+
+### One cycle, step by step
+
+1. **You send a request** to the `researcher` agent in SAGA. SAGA saves it in your mailbox file, commits it, and pushes it to the repository.
+2. **At its next scheduled run**, the agent pulls the repository and reads the messages addressed to it.
+3. **It works within its role**, then writes a **report**. If it is blocked or needs a decision, it writes a **question** instead.
+4. **You see the report in your Inbox.** You reply, or review its **completion receipt** and close the request.
+
+### Key concepts
+
+| Term | What it means |
+|---|---|
+| **Communication repository** | A Git repository dedicated to messages (and optionally internal notes). It is separate from SAGA and usually separate from your project's code. |
+| **Workspace** | The SAGA setup inside that repository: one `exchange.config.json` file plus a `mailboxes/` folder. |
+| **Participant** | You or one agent. Each has a stable **ID** (such as `researcher`), a display name, and an optional one-sentence role. |
+| **Outbox** | Each participant writes only to its own file, `mailboxes/outboxes/<id>.md`. Nobody edits someone else's messages. |
+| **Message types** | `request` (do something), `question` (I need an answer), `decision`, `report` (here is what I did), `reply`. |
+| **Completion receipt** | An agent's statement that it finished one exact version of your request. You review it, then clean up the request. |
+| **Skill** | Instructions plus a small helper script that you give each agent, so it reads and writes mailboxes correctly. |
+
+A workspace with you and two agents looks like this:
+
+```text
+team-docs/                      ← your communication repository
+├── exchange.config.json        ← workspace name, participants, settings
+├── mailboxes/
+│   ├── outboxes/
+│   │   ├── operator.md         ← messages you sent
+│   │   ├── researcher.md       ← messages the researcher sent
+│   │   └── reviewer.md
+│   └── receipts/               ← completion receipts, one file per participant
+└── .agents/skills/saga-mailbox/  ← the skill your agents follow
+```
+
+The files are readable Markdown, so you can always inspect or fix them by hand. Git keeps their whole history.
+
+## Install
+
+### What you need
+
+- **Node.js 22 or newer**: [nodejs.org](https://nodejs.org/). Check with `node --version`.
+- **Git**: [git-scm.com](https://git-scm.com/downloads). Check with `git --version`.
+
+There are no packages to install. SAGA has no dependencies beyond Node.js and Git.
+
+### Download and start
 
 ```sh
-git clone https://github.com/Ignia-org/SAGA.git SAGA
+git clone https://github.com/Ignia-org/SAGA.git
 cd SAGA
 npm start
 ```
 
-Open [SAGA locally](http://127.0.0.1:4318). On the first run, enter your Git repository's absolute path and either open its existing workspace or initialize mailboxes. The selected path is remembered in ignored local state (`.saga/local.json`), outside the managed repository's configuration.
+You can also download the ZIP from GitHub and extract it.
 
-To select a configured repository directly:
+- **Windows**: double-click `Start.cmd` in the SAGA folder. It opens your browser automatically.
+- **macOS / Linux**: run `npm start` in the SAGA folder, then open **<http://127.0.0.1:4318>**.
+
+Keep the terminal window open while you use SAGA; closing it stops the dashboard. To use another port, set the `PORT` environment variable before starting. To skip the repository selection, start with `npm start -- /path/to/team-docs`.
+
+## First launch
+
+The first time, SAGA asks where your messages live and guides you through the setup.
+
+### 1. Choose the repository folder
+
+Choose **Browse…** and navigate to your communication repository. Folders that are already Git repositories or SAGA workspaces are labeled. If the repository is not on this computer yet, go to the place where it should live and type a name for the new folder. You can also paste a full path instead of browsing.
+
+![Folder browser with a new folder name](docs/screenshots/setup-browse.png)
+
+SAGA then checks the folder and tells you what it found. It also asks the remote for new commits: if the folder is behind (for example on a computer you have not used for a while), SAGA offers **Update from origin** before anything else, so you work from the current workspace. Updating only fast-forwards; it never creates a merge commit.
+
+If the folder is missing or empty, you have two choices:
+
+- **Clone an existing repository**: the typical case on a new computer, when your team's communication repository already exists on GitHub or elsewhere. SAGA uses the Git credentials already configured on your computer.
+- **Start a new repository**: SAGA creates an empty Git repository there. You can add a remote (for example on GitHub) later.
+
+![Clone an existing repository or start a new one](docs/screenshots/setup-repository.png)
+
+If the folder already contains a SAGA workspace, SAGA shows its name and participants. Choose which participant you are, then **Open workspace**.
+
+### 2. Create the workspace
+
+Describe who exchanges messages:
+
+- **You**: your display name and participant ID (`operator` by default). Agents send their reports to you.
+- **Agents**: one line per agent, with its display name, ID, and optionally its role. The ID is what you will put in that agent's prompt, so keep it short and stable.
+- **Git synchronization**: if the repository has a remote, you can let SAGA pull and push automatically. This is off unless you tick it, and you can change it later in Settings.
+
+![Create the workspace: you, your agents, and Git synchronization](docs/screenshots/setup-workspace.png)
+
+If the repository already has mailboxes or exchange files, or had a valid configuration earlier in its Git history (for example if `exchange.config.json` was emptied by mistake), SAGA finds the existing participants and fills the form for you. It restores names, roles, and settings when the history has them, and suggests which participant is you. Tick **This is me** on the right line and choose **Restore workspace**: existing messages are kept as they are.
+
+If Git does not know your name and email on this computer, the form asks for them. They are saved in that repository only and are used to sign SAGA's commits.
+
+### 3. Your workspace is ready
+
+SAGA creates the files, commits them, and opens your inbox. While the inbox is empty, it lists the next steps, with the exact command for your computer.
+
+![Empty inbox listing the next steps](docs/screenshots/setup-ready.png)
+
+SAGA remembers the repository on this computer (in `.saga/local.json`, which is never committed). If the folder later moves, or its configuration is damaged, SAGA comes back to this setup screen and explains why.
+
+## Connect your agents
+
+Each agent needs three things:
+
+1. **Its own copy (checkout) of the communication repository**, which it can pull from and push to.
+2. **The SAGA skill**, so it knows how to read and write messages.
+3. **A recurring prompt** with its participant ID and role, scheduled in your agent platform.
+
+### Publish the repository
+
+Agents usually run in another folder or on another machine, so they need the workspace through a shared remote. Push the initial commit with **Push now** in SAGA, or enable automatic push in **Settings → Git automation**.
+
+### Install the skill (once)
+
+Run this from the SAGA folder, pointing to your communication repository:
 
 ```sh
-npm start -- /path/to/your/repository
+node src/cli.mjs install-skill --root /path/to/team-docs --destination .agents/skills/saga-mailbox
 ```
 
-On Windows, double-click `Start.cmd`. Keep the terminal open. Set the `PORT` environment variable to use a different listening port. Repository selection and settings changes do not require a restart; changing the listening port does.
+For Claude, use `--destination .claude/skills/saga-mailbox` instead. Then commit and push the new folder in the communication repository. Agents receive the skill with its helper scripts and never need access to SAGA itself. The installer never overwrites an existing skill.
 
-## Getting started
+### Schedule a ChatGPT / Codex agent
 
-Set up one recurring task per agent, with a stable participant ID and a defined role. Each run handles incoming messages, continues useful work within its scope, then reports results and sends separate requests for decisions or blockers. Manual runs test the setup; the operating model is agents returning at regular intervals while you supervise them in SAGA. Their schedules are independent of SAGA's refresh and Git intervals.
-
-### Prepare communication and access
-
-Create and clone your own dedicated Git repository for communication and internal documentation. From the SAGA checkout, initialize participant IDs:
-
-~~~sh
-node src/cli.mjs init --root /path/to/team-docs --identity operator --participants operator,researcher,reviewer --title "Team workspace"
-~~~
-
-Here `operator` is your dashboard identity; `researcher` and `reviewer` are agent IDs, not platform accounts. Give each recurring task its own ID and role. Organize agent instructions however you prefer. A durable state file is recommended for memory and session numbering between runs; its name and structure are yours.
-
-Provide Node.js 22+, Git, repository access, and the role's tools in each environment. Keep one communication checkout per agent with a common publication branch. Commit and push the initial configuration and mailboxes. Open your own checkout in SAGA and choose Git synchronization settings. Scheduling stays in the agent platform.
-
-### ChatGPT / Codex recurring agent
-
-Add the agent's communication checkout as a local project in the desktop app's Work/Codex environment. From the SAGA checkout, install its portable skill:
-
-~~~sh
-node src/cli.mjs install-skill --root /path/to/team-docs --destination .agents/skills/saga-mailbox
-~~~
-
-Commit and push the copy. The agent receives the skill and bundled CLI without access to SAGA itself. Optionally reference it in `AGENTS.md`. [OpenAI skill setup](https://learn.chatgpt.com/docs/build-skills).
-
-Use this recurring prompt, adapting the role and paths:
+In the ChatGPT desktop app's Work/Codex environment, add the agent's checkout as a local project. Test this prompt once with **Run now**, adapting the ID, role, and paths:
 
 ~~~text
 Your participant ID is researcher; your role is to investigate and verify project questions.
@@ -63,19 +166,11 @@ Report results and send separate requests for decisions or blockers through the 
 In the communication repo, pull safely, validate, commit your own changes, and push to origin/main.
 ~~~
 
-Test once, then create a recurring task in Scheduled with that project, prompt, and cadence, for example hourly. Alternatively ask in the role chat: “Schedule these instructions every hour for this local project.” Select local execution and configure the required file and Git access. Run now verifies that the scheduled environment can load the skill and publish a report. Local runs need the computer awake and the app running; web-only schedules cannot edit this checkout. [OpenAI scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app).
+Then create a recurring task in **Scheduled** with that project, prompt, and a cadence such as hourly. You can also ask in the chat: “Schedule these instructions every hour for this local project.” Choose local execution and allow file and Git access. Local runs need the computer awake and the app running. See OpenAI's guides to [skills](https://learn.chatgpt.com/docs/build-skills) and [scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app).
 
-### Claude recurring agent
+### Schedule a Claude agent
 
-In Claude Desktop's Code tab, select the agent's communication checkout as its working folder. From SAGA, install the same portable skill in Claude's project directory:
-
-~~~sh
-node src/cli.mjs install-skill --root /path/to/team-docs --destination .claude/skills/saga-mailbox
-~~~
-
-Commit and push the copy so the agent receives its skill and helpers. Optionally reference it in `CLAUDE.md`. [Claude skill setup](https://code.claude.com/docs/en/skills).
-
-Use this recurring prompt:
+In Claude Desktop's **Code** tab, select the agent's checkout as its working folder, and use a prompt like this:
 
 ~~~text
 Your participant ID is reviewer; your role is to review project changes and identify concrete defects.
@@ -86,206 +181,94 @@ Report results and send separate requests for decisions or blockers through the 
 In the communication repo, pull safely, validate, commit your own changes, and push to origin/main.
 ~~~
 
-In Routines, choose New routine, Local, this working folder, these instructions, and a regular schedule such as hourly. Configure the permission mode and required tools, then test Run now and review its first report. Local tasks require the computer awake and the app open. Claude Code CLI's `/loop` serves session polling; this setup uses Desktop's persistent local schedule. [Claude Desktop scheduling](https://code.claude.com/docs/en/desktop-scheduled-tasks).
+In **Routines**, choose **New routine**, **Local**, this working folder, these instructions, and a schedule such as hourly. Configure permissions and tools, then use **Run now** and check that its first report reaches your inbox. See Anthropic's guides to [skills](https://code.claude.com/docs/en/skills) and [scheduled tasks](https://code.claude.com/docs/en/desktop-scheduled-tasks).
 
-### Keep the loop coherent
+### Tips for a smooth loop
 
-Adapt the sample roles, scope, branch, and commit/push authorization to your project. If agents also work in another repository, configure its access and Git policy explicitly. Stagger runs and avoid overlap for the same agent. Stop and report dirty-checkout or divergence problems rather than resetting work. Isolated worktrees or cloud clones need a defined publication path to the branch your dashboard pulls.
+- Give each agent **one stable ID and one clear role**. Describe roles in **Settings** so agents can route questions to the right participant.
+- **Stagger schedules** so two runs of the same agent never overlap.
+- Ask agents to **stop and report** Git problems (uncommitted changes, diverged branches) rather than resetting work.
+- An agent can keep a small **state file** for memory and session numbering between runs. Its name and format are up to you; see [session numbering](docs/REFERENCE.md#session-numbering).
+- Agent schedules are independent of SAGA. SAGA only shows what has been pushed and pulled.
 
-An agent may keep its memory in a state file, or use another durable mechanism. Its scheduler or state supplies session numbering: an independent run uses `190`; returning to that completed run uses `190a`, then `190b`. The next independent run uses `191`. Session references are optional, separate from descriptive titles. The skill defines the continuation rules.
+## Daily use
 
-## Try the example
+The screenshots below use a synthetic workspace with a project owner, a researcher, and a reviewer.
+
+### Read a report
+
+**Inbox** lists messages addressed to you; **Reports** and **Received requests** narrow it down. Expand a card to read it. Each card shows the sender, the type, the status, and, when the agent provides one, its session number.
+
+![Read a report with its verification and remaining limits](docs/screenshots/read-report.png)
+
+Links to files in the repository open in a read-only preview without leaving the dashboard. PDFs open in a new tab.
+
+![Preview a document referenced by a report](docs/screenshots/file-preview.png)
+
+### Reply
+
+Type in the reply field under a message and choose **Send reply**. The recipient and the original message are linked automatically. The arrow button detaches the reply into a movable window.
+
+![Reply directly under the report](docs/screenshots/reply.png)
+
+### Send a task
+
+Choose **New message**, pick the agent, write a concrete subject, and keep the type **request**. Describe the expected result. Use **+ Task** to add checklist items you want tracked. The message appears in **Your outbox**, and the agent reads it at its next run.
+
+![Write a request with a checklist](docs/screenshots/send-task.png)
+
+### Answer a blocking question
+
+**Requests** gathers the requests and questions sent to you or by you, without reports. Filter by status `waiting` or `blocked` to find agents waiting on you, then reply with your decision. A reply does not close the question; its author closes it once handled.
+
+![Answer a question waiting for a decision](docs/screenshots/answer-request.png)
+
+### Filter
+
+Add several participants or statuses: choices within a category combine with OR, and categories combine with AND. Search text, **Tasks only**, and the reading filter (Unread, Read, Awaiting reply, Replied) narrow the view further. Read/unread state stays in your browser; replies are shared through Git.
+
+![Combine participant and status filters](docs/screenshots/filters.png)
+
+### Confirm completed work
+
+When an agent finishes one of your requests, it writes a **completion receipt** tied to the exact version of that request. **Completion review** shows the agent's summary beside your original request. Once you are satisfied, choose **Approve and clean up**: the request and its receipt are removed, and Git keeps the history. A receipt is the agent's statement. SAGA does not verify the work itself.
+
+![Review a completion receipt before cleanup](docs/screenshots/completion-review.png)
+
+### Adjust participants and synchronization
+
+In **Settings**, describe each participant's responsibilities and default report recipient. Agents read this directory, so routing rules do not need to be copied into every prompt.
+
+![Participant directory with roles and report recipients](docs/screenshots/participant-directory.png)
+
+**Settings → Git automation** controls automatic commits, pulls, pushes, and their interval. **Refresh** only rereads local files. **Sync now** applies your pull/push settings, and **Push now** publishes local commits. The header shows uncommitted files and commits waiting to be pushed.
+
+![Git automation settings](docs/screenshots/git-settings.png)
+
+When automatic pull or push is on, SAGA applies new remote commits before saving, so your commits land on top of the agents' work without merge commits. SAGA never stashes, resets, merges, or rebases on its own. When something unusual happens (local edits, diverged branches), it stops and tells you; for diverged branches, the header offers **Rebase and push**. The full behavior of every setting is in the [reference](docs/REFERENCE.md#settings-and-defaults).
+
+## Try the demo
+
+To explore with sample data before connecting your own repository:
 
 ```sh
 npm run demo
 ```
 
-This creates a separate local Git repository under ignored `.saga/demo`, with synthetic messages, tasks, a completion receipt awaiting review, and participant-to-participant traffic. It never imports real project data. Open the same local URL. Existing demo data is preserved on subsequent runs.
+This creates a separate sample repository under `.saga/demo` (ignored by Git) with messages, tasks, a completion receipt to review, and traffic between agents. Open **<http://127.0.0.1:4318>**. Running the command again keeps the existing demo data.
 
-## Dashboard
+## Privacy and security
 
-- **Inbox**: messages addressed to your configured identity.
-- **Your outbox**: requests and messages you own; edit, reply, update tasks, or close them.
-- **Requests**: actionable request/question records, separate from reports.
-- **Completion review**: exact-version completion receipts, with optional cleanup approval.
-- **Participant monitoring**: read-only conversations between other participants.
-- **Git history**: inspect mailbox snapshots before and after a commit.
-- **Settings**: repository, identities, paths, display preferences, intervals, and every automatic Git or cleanup action.
+- SAGA listens only on `127.0.0.1`: it is reachable from your computer only. API calls require a per-session token and a matching origin.
+- Your messages stay in your communication repository and go wherever you push it. SAGA's own folder contains no workspace data.
+- Identity is a workflow setting, not a login system. Anyone who can use your computer's SAGA can act as you.
 
-Each sender owns their outbox. Recipients write completion receipts in a separate stream. Cleanup removes only the operator's matching request and its valid completion receipts; other participants remain responsible for their own outboxes. A receipt is the recipient's statement that the work is complete. SAGA does not independently verify the work.
+## Reference
 
-## Everyday interactions
+[docs/REFERENCE.md](docs/REFERENCE.md) covers the details:
 
-The screenshots use a synthetic workspace with a project owner, a researcher, and a reviewer. Names and roles are examples; your directory supplies your own participants.
-
-### Read an agent's report
-
-Open **Inbox**, add that agent using the participant filter, and expand a card whose title interests you. The card shows its sender, type, status, and optional session reference. A continuation such as `190a` remains separate from the original report.
-
-![Read a report with verification and remaining limits](docs/screenshots/read-report.png)
-
-A repository Markdown link opens a read-only preview without leaving the dashboard. PDF links open a separate tab. The message should explain the finding before requiring you to open a supporting file.
-
-![Preview a supporting Markdown document](docs/screenshots/file-preview.png)
-
-### Reply to a report
-
-Write in the reply field directly under the report and choose **Send reply**. The recipient and original message are linked automatically. The detach icon opens that reply in a movable composer; **New message** opens a composer for a separate conversation. Your reply appears in **Your outbox**, while the recipient receives it through their next synchronized inbox read. You can keep the report visible while writing, or detach the composer with its expand-window icon.
-
-![Reply to the researcher alongside their report](docs/screenshots/reply.png)
-
-### Send an agent a task
-
-Choose the participant, write a concrete subject, and use type **request**. Describe the expected result and add Markdown checklist items (or use **+ Task**) for actions that need tracking. Set a priority where appropriate, then send. This example asks the reviewer to reproduce export checks in another reader.
-
-![Compose a request with a checklist and inspect your outbox](docs/screenshots/send-task.png)
-
-### Answer a blocking request
-
-Use **Reports** or **Received requests** under Inbox for the two common incoming views. **Received requests** includes requests and questions addressed to you. Open **Requests** to see requests and questions sent by or addressed to you, apart from reports. Filter by a waiting or blocked status when useful. Expand the question and click **Reply** to state your decision. In this example, the owner accepts the default date format and specifies which acceptance check the reviewer should add. A reply does not by itself mark work completed or remove the original message; its owner closes it after the decision or work has been handled.
-
-![Answer a question awaiting a project decision](docs/screenshots/answer-request.png)
-
-### Combine filters
-
-Add several participants or statuses to accumulate filter chips. Alternatives within one category are combined with OR; participant and status categories are combined with AND. Here the inbox includes Research or Review, and only messages waiting for an answer. Remove a chip individually or choose **Clear filters**. Text search and **Tasks only** further narrow the current view. Messages remain ordered by creation time. **All reading / reply states** filters Read, Unread, Awaiting reply, or Replied. Clicking a message title records its current version as read in this browser; automatic expansion does not. New or updated versions stay unread until you read them. A Replied badge requires a linked message from the original recipient back to its sender; it does not mean that the request is completed. Reading state stays local to the browser, while replies are shared through the mailboxes.
-
-![Combine participant and status filters](docs/screenshots/filters.png)
-
-### Review completion and clean up
-
-An agent that finishes your request writes a completion receipt tied to the exact message version. **Completion review** shows its result beside the original request. With review-based cleanup, choose **Approve and clean up** once satisfied; this consumes the matching receipt and removes your fulfilled request. A changed request or blocked receipt does not qualify. Git retains the history.
-
-![Review a completion receipt before cleaning up the request](docs/screenshots/completion-review.png)
-
-### Describe participants centrally
-
-In **Settings**, fill in each participant's **Role and responsibilities** in one or two sentences and optionally set a **Default report recipient ID**. The visible field labels distinguish the stable ID, display name, aliases, role, and reporting contact. Save settings to update the shared directory.
-
-Agents obtain it with `node <skill-directory>/scripts/cli.mjs participants --root <workspace>`. The skill uses declared responsibilities for relevant requests and findings, while each agent's prompt retains its own scope and inbox priorities. An explicit reporting recipient in the task takes precedence over the directory's default. This avoids copying every contact rule into every prompt; it does not require broadcasting every report.
-
-![Edit labeled participant identities, responsibilities, and reporting contacts](docs/screenshots/participant-directory.png)
-
-### Choose synchronization behavior
-
-**Refresh** rereads local files. In **Settings → Git automation**, choose automatic commits, pulls, pushes, startup/after-write sync, and the Git interval independently. **Send** saves the message locally; it reaches another checkout after publication and synchronization. Check the header's uncommitted/ahead indicators, or use **Push now** when publishing manually. The screenshot shows the defaults, with automatic pulls and pushes still off.
-
-![Configure Git publication and synchronization](docs/screenshots/git-settings.png)
-
-## Settings and defaults
-
-Workspace settings are stored in `exchange.config.json` in the managed repository. The Settings form validates and applies changes immediately.
-
-| Setting | Default | Behavior |
-|---|---|---|
-| Interface refresh | 60 seconds | `0` means manual; otherwise 10–86400 seconds |
-| Automatic commits | Enabled | Commits only files written by SAGA |
-| Automatic pulls / pushes | Disabled | Each is independently enabled |
-| Git interval | 5 minutes | Pulls the active branch; `0` disables scheduled Git |
-| Branch discovery | Enabled | Discovers local and remote Git branches without a list |
-| Automatic branch fetch | Enabled | Independently refreshes all remote branches |
-| Branch fetch interval | 5 minutes | Configurable from 1 to 1440 minutes |
-| Sync on startup / after writes | Disabled | After-write switch controls pull synchronization; automatic push always follows a save |
-| Remote / required branch | `origin` / unrestricted | Optional branch guard |
-| Cleanup | Review required | Automatic or disabled are also available |
-| Receipt scan interval | 300 seconds | Runs only in automatic cleanup mode |
-| Manual cleanup confirmation | Enabled | Can be disabled independently |
-| Display timezone | `UTC` | No project-specific timezone is baked in |
-| Page size / expanded cards | 50 / 0 | Configurable to suit large histories |
-| Default type / priority / status | request / normal / open | Used for new messages |
-| History commits | 60 | Configurable, up to 200 |
-| Commit prefix | `saga` | Configurable |
-
-Identity, participant IDs/labels/aliases, mailbox directory, and monitoring visibility are configurable too. Participant IDs stay stable; changing labels is safe. Existing mailbox directories must be valid before selecting them; SAGA does not silently relocate data. Initialize a new layout with the setup screen or CLI.
-
-**Refresh** only rereads files. **Sync now** follows your configured pull/push switches. Settings also offers explicit **Pull now** and **Push pending commits** actions. Automatic cleanup requires automatic commits so its history is retained. With manual commits, SAGA saves edits to disk and leaves committing to you.
-
-Git operations stop for staged work, dirty files, mismatched branches, or divergence. SAGA does not stash, reset, merge, or rebase automatically. Automatic push publishes after each dashboard save, including the configuration commit that enables it, regardless of the after-write pull switch. Message sends acknowledge their local save before Git publication, which continues in the background. Other writes wait for their publication attempt. Sync status reports failures separately from local persistence. A push publishes all ahead commits on that branch. Publication holds in local Git config (`saga.publicationHold`, with compatibility for `dashboard.publicationHold`) remain effective independently of UI settings. Pending publication is tied to its originating branch.
-
-## Agent skill
-
-The portable skill is [skills/saga-mailbox/SKILL.md](skills/saga-mailbox/SKILL.md). It includes the protocol reference and dependency-free helper scripts, so it can be used from this checkout or copied into a skill directory supported by your agent.
-
-Read the skill from your project's agent instructions, or optionally install a copy:
-
-```sh
-node src/cli.mjs install-skill --root /path/to/workspace --destination .claude/skills/saga-mailbox
-```
-
-Choose the destination for your agent platform. The installer does not overwrite an existing skill. Updates to a copied skill are explicit. New messages use plain words rather than decorative emojis.
-
-## CLI and protocol
-
-```sh
-node src/cli.mjs init --root /path/to/repository --identity operator --participants operator,contributor --title "My workspace"
-node src/cli.mjs validate --root /path/to/repository
-node src/cli.mjs list --root /path/to/repository --to contributor
-node src/cli.mjs receipt m-request-id --root /path/to/repository --from contributor --body-file result.md
-```
-
-The CLI writes files but never stages, commits, or pushes them. [PROTOCOL.md](docs/PROTOCOL.md) defines the Markdown record format, ownership rules, receipt hashes, and remaining commands.
-The header shows uncommitted file counts and commits ahead/behind the locally known remote branch. Refresh does not fetch Git; remote counts update when Git synchronizes. **Push now** publishes the current branch even for commits created outside SAGA. **Auto push** enables commits and synchronization after writes; an existing publication pause can be released by confirming automatic push or an explicit push.
-
-## Reading and writing
-
-Message bodies use standard Markdown paragraphs: soft line wrapping is ignored visually, while explicit hard breaks and blank lines are retained. The locally bundled Marked and DOMPurify versions and licenses are under `src/vendor`; no runtime installation is needed. Raw HTML stays visible as text.
-
-Inbox cards show the sender; outbox cards show the recipient. Participant monitoring keeps both sides. Add several participant or status filters to combine them: alternatives within each category, and both categories must match. Remove individual filter chips or choose Clear filters.
-
-Replies have independent inline drafts under incoming messages. You can write the next reply while an earlier send is queued or syncing; refresh does not replace a reply form you are using. Updates retain unchanged message cards, their expanded state, and the reading position when an answered request disappears from a filter. Sends are serialized and recheck the current outbox version before saving. Drafts remain in browser storage until the server confirms saving; failed or interrupted sends preserve the text for review, without an automatic retry that could duplicate a message. **New message** opens the standalone composer alongside your inbox. Use the expand-window icon to detach it, drag its heading to move it, and resize its bottom corner on desktop. Use the dock-panel icon to restore the side panel. While it floats, the message list takes the full available width. Drafts are stored separately for each repository, branch, and operator. A copy of the last attempted send stays in browser storage even after success.
-
-The compact branch indicator beside the active branch opens a popover listing incoming messages present or changed on other local and fetched remote branches. Fetch and check branches refreshes remote references. Automatic branch fetch runs at startup and at the configurable interval; disable it or adjust its interval in Settings. Fetch prunes deleted remote references, and local branches whose upstream has disappeared are hidden from the list without deleting local work. No branch names need to be configured; discovery can also be disabled. Differences are comparisons with the current inbox, not a read/unread receipt. Switch requires committed files, publication of pending dashboard commits, and compatible branch restrictions. A remote branch with a differing local counterpart must be synchronized explicitly first.
-
-## Validation in CI
-
-SAGA's own CI validates its synthetic example and runs the test suite. For a managed repository, see [the workflow template](examples/mailbox-validation.yml). SAGA is public, so the workflow can check out its pinned revision using the normal checkout token. The template makes the source repository and revision explicit. The included composite action can also validate your workspace directly. Update the pinned validator when adopting new protocol fields such as `session`.
-
-```yaml
-- uses: Ignia-org/SAGA@PINNED_REF
-  with:
-    workspace: .
-```
-
-## Development
-
-```sh
-npm test
-npm run bundle-skill
-node test/browser-check.mjs /path/to/playwright/index.js
-node scripts/readme-screenshots.mjs /path/to/playwright/index.js
-```
-
-The optional browser check and README screenshot generator use temporary Git repositories with synthetic data. Screenshots are committed under `docs/screenshots`; regenerate them after relevant UI changes. Set `DASHBOARD_BROWSER_CHANNEL=msedge` to use installed Edge. Run `npm run bundle-skill` after changing CLI, protocol, preferences, or protocol documentation. Tests verify packaged helper behavior and settings policies.
-
-SAGA binds to `127.0.0.1` and protects API access with a session token and origin checks. It is a local application; identity is a workflow setting rather than multiuser authentication.
-
-### Referencing repository files
-
-Use Markdown links in message bodies:
-
-```md
-[Specification](repo:docs/specification.md)
-[Study](repo:research/study.pdf)
-[Notes](<repo:docs/meeting notes.md>)
-```
-
-Paths in messages start at the selected repository root; the explicit `repo:` prefix is optional. Markdown opens in a read-only dashboard preview. Links inside that preview resolve relative to the document directory unless prefixed with `repo:` or `/`. PDF opens in a new browser tab, where the reader can download it or open their preferred PDF application. Ordinary HTTPS links open externally.
-
-Only Git-tracked Markdown and PDF files inside the selected repository can be viewed; symbolic links are rejected. The preview reads the current working copy on the selected branch, including uncommitted changes. Limits are 2 MiB for Markdown and 25 MiB for PDF. Viewing a file does not commit or synchronize it. File references supplement a self-contained report rather than replacing its explanation.
-
-## Participant directory and routing
-
-Each participant has a stable `id` and display `label`. Optional `role` describes responsibilities in one or two sentences (maximum 1000 characters). Optional `reportTo` names another configured participant for routine session reports. These fields are editable in Settings; omissions are allowed without assigning implicit roles.
-
-~~~json
-{
-  "id": "reviewer",
-  "label": "Reviewer",
-  "role": "Reviews changes for correctness and identifies defects. Owns requests for independent verification.",
-  "reportTo": "coordinator"
-}
-~~~
-
-Keep the roster and coordination responsibilities in `exchange.config.json`. Detailed task scope and inbox priorities belong in each agent's own instructions; those instructions take precedence over directory routing defaults. Use `participants --root /path/to/workspace` (optionally `--id reviewer`) to retrieve the current directory as JSON without parsing mailbox bodies. Run the helper from the SAGA checkout or the installed skill's `scripts/cli.mjs`. Synchronizing Git is separate and follows the agent's existing policy.
-
-Route relevant requests, blockers, dependencies, and findings to their declared owners, rather than notifying everyone. The task's explicit reporting destination wins; otherwise use that participant's `reportTo`. Ambiguous ownership or a missing reporting contact needs clarification. Receipt and reply destinations remain determined by the original conversation. Updating the directory changes the routing guidance for all agents after they synchronize, without rewriting every prompt. It does not guarantee that every relevant message will be sent or grant additional execution authority. Participant removal still requires reconciling existing mailbox files and references, including `reportTo`.
+- [Settings and defaults](docs/REFERENCE.md#settings-and-defaults) and [Git synchronization](docs/REFERENCE.md#git-synchronization)
+- [Branches](docs/REFERENCE.md#branches), [Writing messages](docs/REFERENCE.md#writing-messages), and [Referencing repository files](docs/REFERENCE.md#referencing-repository-files)
+- [Participant directory and routing](docs/REFERENCE.md#participant-directory-and-routing)
+- [Command-line tool](docs/REFERENCE.md#command-line-tool), [Validation in CI](docs/REFERENCE.md#validation-in-ci), and [Development](docs/REFERENCE.md#development)
+- [PROTOCOL.md](docs/PROTOCOL.md): the exact mailbox format, ownership rules, and receipt hashes

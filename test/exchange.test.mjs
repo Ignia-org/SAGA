@@ -308,3 +308,145 @@ test('automatic push publishes the enabling settings commit and later messages d
 });
 
 test('background message saves acknowledge persistence before queued synchronization errors',async()=>{const f=await fixture();let app;try{const c={...config(),autoPull:false,autoPush:true,syncOnStart:false,syncSeconds:0,autoFetchBranches:false,discoverBranches:false};await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify(c));git(f.root,'add','.');git(f.root,'commit','-m','settings');app=await createDashboard(f.root);await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+app.server.address().port,headers={'X-Dashboard-Token':app.token,'Content-Type':'application/json'};const state=await fetch(base+'/api/state',{headers}).then(r=>r.json());const response=await fetch(base+'/api/message',{method:'POST',headers,body:JSON.stringify({to:'researcher',title:'Saved before sync',text:'Keep this message even if publication fails.',version:state.outboxVersion,background:true})});assert.equal(response.status,200);const result=await response.json();assert.ok(result.id);assert.equal(result.sync.state,'pending');await app.synchronize();const after=await fetch(base+'/api/state',{headers}).then(r=>r.json());assert.ok(after.messages.some(r=>r.meta.id===result.id));assert.equal(after.sync.state,'error');}finally{if(app)await new Promise(r=>app.server.close(r));await f.dispose();}});
+test('first run without a usable workspace returns guided setup state instead of failing',async()=>{
+  const temp=await mkdtemp(path.join(os.tmpdir(),'exchange-onboarding-'));let app;
+  try{
+    app=await start(path.join(temp,'moved-away'));let state=await app.state();
+    assert.equal(state.setupRequired,true);assert.match(state.problem,/does not exist on this computer/);
+    const sync=await app.call('sync',{});assert.equal(sync.status,409);assert.match((await sync.json()).error,/exchange\.config\.json is missing/);
+    const repo=path.join(temp,'repo');await mkdir(repo);git(repo,'init');git(repo,'config','user.name','Test');git(repo,'config','user.email','test@example.com');
+    await writeFile(path.join(repo,'exchange.config.json'),'');
+    assert.equal((await app.call('workspace',{root:repo})).status,409);
+    let inspection=await (await app.call('inspect',{root:repo})).json();assert.equal(inspection.workspace,'empty');assert.match(inspection.problem,/is empty/);
+    const setup={schema:1,title:'Recovered',identity:'alice',participants:[{id:'alice',label:'Alice'},{id:'bob',label:'Bob',reportTo:'alice'}],mailboxDirectory:'mailboxes',cleanup:'approval'};
+    assert.equal((await app.call('workspace',{root:repo,initialize:true,config:setup})).status,200);
+    state=await app.state();assert.equal(state.setupRequired,undefined);assert.equal(state.config.title,'Recovered');assert.equal(git(repo,'status','--porcelain'),'');
+    await writeFile(path.join(repo,'exchange.config.json'),'{ broken');state=await app.state();assert.equal(state.setupRequired,true);assert.match(state.problem,/not valid JSON/);
+    await writeFile(path.join(repo,'exchange.config.json'),'﻿'+JSON.stringify(setup));state=await app.state();assert.equal(state.config.title,'Recovered');
+    assert.equal((await app.call('inspect',{root:'relative/path'})).status,409);
+    inspection=await (await app.call('inspect',{root:path.join(repo,'mailboxes')})).json();assert.equal(inspection.isRepositoryRoot,false);assert.equal(inspection.repository,await (await import('node:fs/promises')).realpath(repo));
+    inspection=await (await app.call('inspect',{root:path.join(temp,'new')})).json();assert.equal(inspection.exists,false);assert.equal(inspection.gitInstalled,true);
+  }finally{if(app)await app.stop();await rm(temp,{recursive:true,force:true});}
+});
+test('onboarding clones or creates repositories and records a local Git identity',async()=>{
+  const f=await fixture();let app;
+  try{
+    app=await start(f.root);const remote=path.join(f.temp,'remote.git');execFileSync('git',['clone','-q','--bare',f.root,remote]);
+    const cloned=path.join(f.temp,'computer','team-docs');let response=await app.call('prepare',{action:'clone',root:cloned,url:remote});assert.equal(response.status,200);
+    let inspection=await response.json();assert.equal(inspection.workspace,'valid');assert.equal(inspection.title,'Reusable workspace');assert.deepEqual(inspection.remotes,['origin']);
+    assert.equal((await app.call('prepare',{action:'clone',root:cloned,url:remote})).status,409);
+    assert.equal((await app.call('prepare',{action:'clone',root:path.join(f.temp,'x'),url:'--upload-pack=touch'})).status,409);
+    assert.equal((await app.call('prepare',{action:'create',root:path.join(process.cwd(),'.saga','inside')})).status,409);
+    const created=path.join(f.temp,'fresh');response=await app.call('prepare',{action:'create',root:created});assert.equal(response.status,200);
+    inspection=await response.json();assert.equal(inspection.isRepositoryRoot,true);assert.equal(inspection.workspace,'missing');
+    assert.equal((await app.call('prepare',{action:'create',root:created})).status,409);
+    const setup={schema:1,title:'Fresh',identity:'me',participants:[{id:'me',label:'Me'},{id:'agent',label:'Agent'}],mailboxDirectory:'mailboxes',cleanup:'approval'};
+    assert.equal((await app.call('workspace',{root:created,initialize:true,config:setup,gitIdentity:{name:'New Computer',email:'not-an-email'}})).status,409);
+    assert.equal((await app.call('workspace',{root:created,initialize:true,config:setup,gitIdentity:{name:'New Computer',email:'new@example.com'}})).status,200);
+    assert.equal(git(created,'config','--local','user.email'),'new@example.com');assert.equal(git(created,'log','-1','--format=%an'),'New Computer');
+  }finally{if(app)await app.stop();await f.dispose();}
+});
+test('folder browser lists subfolders and marks repositories and workspaces',async()=>{
+  const f=await fixture();let app;
+  try{
+    app=await start(f.root);await mkdir(path.join(f.temp,'plain'));await mkdir(path.join(f.temp,'.hidden'));
+    const response=await app.call('folders',{path:f.temp});assert.equal(response.status,200);const listing=await response.json();
+    const real=await (await import('node:fs/promises')).realpath(f.temp);assert.equal(listing.path,real);assert.equal(listing.parent,path.dirname(real));
+    assert.deepEqual(listing.folders.map(x=>[x.name,x.git,x.workspace]),[['plain',false,false],['root',true,true]]);
+    assert.ok(listing.shortcuts.some(s=>s.label==='Home'));
+    const missing=await (await app.call('folders',{path:path.join(f.temp,'not-yet','deeper')})).json();assert.equal(missing.path,real);
+    assert.equal((await app.call('folders',{path:'relative'})).status,409);
+  }finally{if(app)await app.stop();await f.dispose();}
+});
+test('setup discovers participants from Git history and existing mailboxes and suggests an identity',async()=>{
+  const f=await fixture(),g=await fixture();let app;
+  try{
+    app=await start(f.root);
+    // An emptied configuration is recovered from the last valid committed version.
+    await writeFile(path.join(f.root,'exchange.config.json'),'');git(f.root,'commit','-qam','emptied by mistake');
+    let x=await (await app.call('inspect',{root:f.root})).json();
+    assert.equal(x.workspace,'empty');assert.equal(x.discovered.source,'history');assert.equal(x.discovered.suggestedIdentity,'coordinator');
+    assert.deepEqual(x.discovered.participants.map(p=>p.id).sort(),['coordinator','researcher','reviewer']);assert.equal(x.discovered.settings.commitPrefix,'exchange');
+    // Without any configuration history, participants come from mailbox files and message metadata.
+    const report={meta:{...meta('m-report','researcher','coordinator'),kind:'report'},body:'Done.'},question={meta:meta('m-question','reviewer','researcher'),body:'Which source?'};
+    await writeFile(path.join(g.root,'mailboxes','outboxes','researcher.md'),mailboxText('researcher','outboxes',[report]));
+    await writeFile(path.join(g.root,'mailboxes','outboxes','reviewer.md'),mailboxText('reviewer','outboxes',[question]));
+    await rm(path.join(g.root,'.git'),{recursive:true,force:true});await rm(path.join(g.root,'exchange.config.json'));
+    git(g.root,'init','-q');git(g.root,'config','user.email','test@example.com');git(g.root,'config','user.name','Test');git(g.root,'add','.');git(g.root,'commit','-qm','mailboxes without configuration');
+    x=await (await app.call('inspect',{root:g.root})).json();
+    assert.equal(x.workspace,'missing');assert.equal(x.discovered.source,'mailboxes');assert.equal(x.discovered.mailboxDirectory,'mailboxes');
+    assert.equal(x.discovered.suggestedIdentity,'coordinator');assert.equal(x.discovered.participants.find(p=>p.id==='researcher').label,'Researcher');
+    const participants=x.discovered.participants.map(p=>({id:p.id,label:p.label}));
+    const partial={schema:1,title:'Recovered',identity:'coordinator',participants:participants.filter(p=>p.id!=='reviewer'),mailboxDirectory:'mailboxes',cleanup:'approval'};
+    const refused=await app.call('workspace',{root:g.root,initialize:true,config:partial});assert.equal(refused.status,409);assert.match((await refused.json()).error,/Existing mailboxes do not match/);
+    assert.equal((await app.call('workspace',{root:g.root,initialize:true,config:{...partial,participants}})).status,200);
+    let state=await app.state();assert.equal(state.errors.length,0);assert.deepEqual(state.messages.map(m=>m.meta.id).sort(),['m-question','m-report']);
+    // Opening an existing workspace can switch the operating identity.
+    assert.equal((await app.call('workspace',{root:g.root,identity:'nobody'})).status,409);
+    assert.equal((await app.call('workspace',{root:g.root,identity:'reviewer'})).status,200);
+    state=await app.state();assert.equal(state.config.identity,'reviewer');assert.equal(git(g.root,'status','--porcelain'),'');
+  }finally{if(app)await app.stop();await f.dispose();await g.dispose();}
+});
+test('setup discovers participants from earlier channel files and hidden or deep mailbox folders',async()=>{
+  const temp=await mkdtemp(path.join(os.tmpdir(),'exchange-discovery-'));let app;
+  const repo=async(name)=>{const root=path.join(temp,name);await mkdir(root);git(root,'init','-q');return root;};
+  try{
+    const legacy=await repo('legacy');await mkdir(path.join(legacy,'docs','exchanges'),{recursive:true});
+    for(const name of ['Alice-to-Bob.md','Bob-to-Alice.md','Carol-to-Alice.md','Bob-to-Carol-2026-09-01.md'])await writeFile(path.join(legacy,'docs','exchanges',name),'## 2026-09-01 Notes\n\nText.');
+    app=await start(legacy);let x=await (await app.call('inspect',{root:legacy})).json();
+    assert.equal(x.discovered.source,'channels');assert.deepEqual(x.discovered.participants.map(p=>p.id).sort(),['alice','bob','carol']);
+    assert.equal(x.discovered.participants.find(p=>p.id==='alice').label,'Alice');assert.equal(x.discovered.suggestedIdentity,'alice');
+    const hidden=await repo('hidden');const box=path.join(hidden,'.team','comms','current','box');
+    for(const category of ['outboxes','receipts'])await mkdir(path.join(box,category),{recursive:true});
+    await writeFile(path.join(box,'outboxes','writer.md'),mailboxText('writer','outboxes',[{meta:{...meta('m-hidden','writer','lead'),kind:'report'},body:'Done.'}]));
+    x=await (await app.call('inspect',{root:hidden})).json();
+    assert.equal(x.discovered.source,'mailboxes');assert.equal(x.discovered.mailboxDirectory,'.team/comms/current/box');assert.equal(x.discovered.suggestedIdentity,'lead');
+    const empty=await repo('empty');x=await (await app.call('inspect',{root:empty})).json();
+    assert.deepEqual(x.discovered.participants,[]);assert.equal(x.discovered.searched.history,false);assert.deepEqual(x.discovered.searched.mailboxFolders,[]);
+  }finally{if(app)await app.stop();await rm(temp,{recursive:true,force:true});}
+});
+test('writes catch up with the remote first and divergence is resolved only by an explicit rebase',async()=>{
+  const f=await fixture();let app;
+  try{
+    const remote=path.join(f.temp,'remote.git'),agent=path.join(f.temp,'agent'),branch=git(f.root,'branch','--show-current');
+    const c={...config(),syncSeconds:0,discoverBranches:false,autoFetchBranches:false};await writeFile(path.join(f.root,'exchange.config.json'),JSON.stringify(c,null,2)+'\n');git(f.root,'commit','-qam','sync settings');
+    git(f.temp,'clone','-q','--bare',f.root,remote);git(f.root,'remote','add','origin',remote);git(f.root,'fetch','-q','origin');
+    git(f.temp,'clone','-q',remote,agent);git(agent,'config','user.email','agent@example.com');git(agent,'config','user.name','Agent');
+    const agentReport=async id=>{const file=path.join(agent,'mailboxes','outboxes','researcher.md');git(agent,'pull','-q','--ff-only');const records=parseMailbox(await readFile(file,'utf8'),c,'outboxes/researcher.md');
+      await writeFile(file,mailboxText('researcher','outboxes',[{meta:{...meta(id,'researcher','coordinator'),kind:'report'},body:'Report.'},...records]));git(agent,'commit','-qam','agent report '+id);git(agent,'push','-q','origin','HEAD:'+branch);};
+    app=await createDashboard(f.root);await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${app.server.address().port}`,call=(route,data)=>fetch(base+'/api/'+route,{method:data===undefined?'GET':'POST',headers:{'X-Dashboard-Token':app.token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
+    let state=await (await call('state')).json();await agentReport('m-agent-1');
+    // The agent pushed after the dashboard loaded; the send still publishes without a merge.
+    const sent=await (await call('message',{to:'researcher',title:'Follow up',text:'Next step.',version:state.outboxVersion})).json();
+    assert.equal(sent.sync.state,'ok',sent.sync.message);assert.equal(git(remote,'rev-parse',branch),git(f.root,'rev-parse','HEAD'));
+    assert.equal(git(f.root,'rev-list','--merges','--count','HEAD'),'0');assert.match(git(f.root,'log','--format=%s','-2'),/send m-[\s\S]*agent report m-agent-1/);
+    // A local commit made while the agent pushes diverges: synchronization stops and explains.
+    await writeFile(path.join(f.root,'unrelated.txt'),'local');git(f.root,'commit','-qam','local edit');await agentReport('m-agent-2');
+    let s=await app.synchronize();assert.equal(s.state,'error');assert.match(s.message,/diverged: 1 local commit/);assert.deepEqual(s.diverged,{ahead:1,behind:1});
+    s=await (await call('sync',{operation:'rebase'})).json();assert.equal(s.state,'ok',s.message);
+    assert.equal(git(remote,'rev-parse',branch),git(f.root,'rev-parse','HEAD'));assert.equal(git(f.root,'rev-list','--merges','--count','HEAD'),'0');assert.equal(git(f.root,'log','-1','--format=%s'),'local edit');
+  }finally{if(app)await new Promise(resolve=>app.server.close(resolve));await f.dispose();}
+});
+test('setup detects an outdated folder and fast-forwards it on request',async()=>{
+  const f=await fixture();let app;
+  try{
+    const remote=path.join(f.temp,'remote.git'),laptop=path.join(f.temp,'laptop'),source=path.join(f.temp,'source');
+    await mkdir(source);git(source,'init','-q');git(source,'config','user.email','t@example.com');git(source,'config','user.name','T');
+    await writeFile(path.join(source,'notes.md'),'# Notes\n');git(source,'add','.');git(source,'commit','-qm','before SAGA');
+    git(f.temp,'clone','-q','--bare',source,remote);git(source,'remote','add','origin',remote);git(source,'fetch','-q','origin');const branch=git(source,'branch','--show-current');git(source,'branch','-q','-u','origin/'+branch);
+    git(f.temp,'clone','-q',remote,laptop);git(laptop,'config','user.email','t@example.com');git(laptop,'config','user.name','T');
+    // The workspace is created elsewhere after this computer last pulled.
+    await writeFile(path.join(source,'exchange.config.json'),JSON.stringify(config(),null,2));
+    for(const category of ['outboxes','receipts']){await mkdir(path.join(source,'mailboxes',category),{recursive:true});for(const p of config().participants)await writeFile(path.join(source,'mailboxes',category,p.id+'.md'),mailboxText(p.id,category,[]));}
+    git(source,'add','.');git(source,'commit','-qm','create workspace');git(source,'push','-q');
+    app=await start(f.root);let x=await (await app.call('inspect',{root:laptop})).json();
+    assert.equal(x.workspace,'missing');assert.deepEqual([x.remoteStatus.behind,x.remoteStatus.ahead,x.remoteStatus.workspace],[1,0,true]);
+    x=await (await app.call('prepare',{action:'pull',root:laptop})).json();assert.equal(x.workspace,'valid');assert.equal(x.remoteStatus.behind,0);
+    assert.equal(git(laptop,'rev-list','--merges','--count','HEAD'),'0');
+    // Local commits on both sides are never merged automatically.
+    await writeFile(path.join(source,'notes.md'),'# Notes\n\nRemote.\n');git(source,'commit','-qam','remote edit');git(source,'push','-q');
+    await writeFile(path.join(laptop,'local.md'),'local');git(laptop,'add','.');git(laptop,'commit','-qm','local edit');
+    const refused=await app.call('prepare',{action:'pull',root:laptop});assert.equal(refused.status,409);assert.match((await refused.json()).error,/1 local commit/);
+  }finally{if(app)await app.stop();await f.dispose();}
+});

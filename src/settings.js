@@ -16,7 +16,7 @@ function renderSettings(c) {
   const statuses=['untriaged','open','in_progress','waiting','blocked','done'].map(v=>[v,v]);
   return `<form id="settingsForm">
     <section class="card panel"><h3>Repository</h3><p class="hint">SAGA runs separately from the repository holding your messages. Opening another workspace does not move its data.</p>
-      <div class="settings-grid">${settingsField('root','Repository path',state.workspaceRoot)}<div class="setting-field"><span>Workspace selection</span><button id="openWorkspace" type="button">Open this repository</button></div></div>
+      <div class="settings-grid">${settingsField('root','Repository path',state.workspaceRoot)}<div class="setting-field"><span>Workspace selection</span><div class="pair"><button type="button" data-browse="setting-root">Browse…</button><button id="openWorkspace" type="button">Open this repository</button></div></div></div>
       <p class="hint">Active branch: ${esc(state.branch)} · available remotes: ${esc(state.remotes?.join(', ')||'none')}${state.publicationHold?' · publication is held in local Git configuration':''}</p>
     </section>
     <section class="card panel"><h3>Workspace and participants</h3><div class="settings-grid">
@@ -58,12 +58,4 @@ function collectSettings() {
   settings.syncSeconds=Math.round(Number($('setting-syncMinutes').value)*60);
   settings.participants=[...document.querySelectorAll('#participantRows .participant-row')].map(row=>({id:row.querySelector('[data-participant="id"]').value.trim(),label:row.querySelector('[data-participant="label"]').value.trim(),aliases:row.querySelector('[data-participant="aliases"]').value.split(',').map(a=>a.trim()).filter(Boolean),...(row.querySelector('[data-participant="role"]').value.trim()?{role:row.querySelector('[data-participant="role"]').value.trim()}:{}),...(row.querySelector('[data-participant="reportTo"]').value.trim()?{reportTo:row.querySelector('[data-participant="reportTo"]').value.trim()}:{})}));
   return settings;
-}
-function renderSetup() {
-  return `<section class="card panel"><h3>Connect a repository</h3><p>SAGA keeps mailbox data in your own Git repository. Open an existing configured workspace or initialize a new one.</p>
-    ${settingsField('root','Repository path',state.workspaceRoot)}<div class="actions"><button id="openWorkspace">Open existing workspace</button></div>
-    <hr><h3>Initialize mailboxes</h3><div class="settings-grid">${settingsField('setupTitle','Workspace name','My workspace')}${settingsField('setupIdentity','Your participant ID','operator')}${settingsField('setupDirectory','Mailbox directory','mailboxes')}</div>
-    <label class="setting-field">Participants (JSON)<textarea id="setupParticipants" aria-label="Setup participants">${esc(JSON.stringify([{id:'operator',label:'Operator'},{id:'contributor',label:'Contributor'}],null,2))}</textarea></label>
-    <button id="initializeWorkspace" class="primary">Initialize this repository</button><p class="hint">Creates configuration and empty mailboxes. Initial files are committed locally. Automatic pulls and pushes remain off.</p>
-  </section>`;
 }

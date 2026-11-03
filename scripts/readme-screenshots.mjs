@@ -1,5 +1,5 @@
 // Regenerate README images with synthetic data; never opens a real workspace.
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -9,6 +9,36 @@ import { mailboxText, recordHash } from '../src/protocol.mjs';
 if (!process.argv[2]) throw new Error('Pass an installed Playwright module path.');
 const imported=await import(pathToFileURL(path.resolve(process.argv[2])).href),{chromium}=imported.default||imported;
 const root=await mkdtemp(path.join(os.tmpdir(),'saga-readme-')),output=path.resolve('docs/screenshots');let app,browser;
+// Onboarding runs against an isolated Git configuration and shows example paths instead of temporary ones.
+const sandbox=await mkdtemp(path.join(os.tmpdir(),'saga-readme-setup-')),gitConfig=path.join(sandbox,'gitconfig');
+await writeFile(gitConfig,'[user]\n\tname = Documentation example\n\temail = example@example.invalid\n[init]\n\tdefaultBranch = main\n');
+Object.assign(process.env,{GIT_CONFIG_GLOBAL:gitConfig,GIT_CONFIG_NOSYSTEM:'1'});
+async function captureOnboarding(browser){
+ const appRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),home=path.join(sandbox,'home');await mkdir(home);
+ const pairs=[[appRoot,'/home/you/SAGA'],[home,'/home/you']],swap=(text,forward)=>pairs.reduce((t,[real,shown])=>{const [a,b]=forward?[real,shown]:[shown,real];return t.split(JSON.stringify(a).slice(1,-1)).join(JSON.stringify(b).slice(1,-1)).split(a).join(b);},text);
+ for(const folder of ['Desktop','Documents','projects/website','projects/notes'])await mkdir(path.join(home,folder),{recursive:true});execFileSync('git',['init','-q'],{cwd:path.join(home,'projects','website')});
+ const previousHome={HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE};Object.assign(process.env,{HOME:home,USERPROFILE:home});
+ const setup=await createDashboard(appRoot,{noSync:true});await new Promise(resolve=>setup.server.listen(0,'127.0.0.1',resolve));
+ try{
+  const page=await browser.newPage({viewport:{width:1280,height:900},deviceScaleFactor:1});page.on('pageerror',error=>{throw error;});
+  await page.route('**/api/**',async route=>{const request=route.request(),body=request.postData();const response=await route.fetch(body?{postData:swap(body,false)}:{});await route.fulfill({response,body:swap(await response.text(),true)});});
+  const shot=async(name,full=false)=>{await page.evaluate(()=>{document.activeElement?.blur();window.scrollTo(0,0);});await page.waitForTimeout(150);await page.screenshot({path:path.join(output,name+'.png'),fullPage:full});};
+  await page.goto('http://127.0.0.1:'+setup.server.address().port);await page.getByText('Where is your communication repository?').waitFor();
+  await page.getByRole('button',{name:'Browse…',exact:true}).click();await page.locator('#pickerList').getByText('projects',{exact:true}).click();await page.locator('#pickerList').getByText('website',{exact:true}).waitFor();
+  await page.locator('[data-picker="up"]').click();await page.locator('#pickerList').getByText('Documents',{exact:true}).waitFor();
+  await page.locator('#pickerNewName').fill('team-docs');await page.mouse.move(0,0);await page.screenshot({path:path.join(output,'setup-browse.png')});
+  await page.getByRole('button',{name:'Select this folder',exact:true}).click();await page.getByText('This folder does not exist yet').waitFor();
+  await page.locator('#setup-url').fill('https://github.com/your-org/team-docs.git');await shot('setup-repository',true);
+  await page.getByRole('button',{name:'Create Git repository',exact:true}).click();await page.getByText('Create the workspace').waitFor();
+  execFileSync('git',['init','-q','--bare',path.join(sandbox,'origin.git')]);execFileSync('git',['remote','add','origin',path.join(sandbox,'origin.git')],{cwd:path.join(home,'team-docs')});
+  await page.getByRole('button',{name:'Check folder',exact:true}).click();await page.locator('#setting-setupAutoSync').waitFor();
+  const agents=page.locator('[data-setup-agent]');await agents.first().locator('[data-agent="role"]').fill('Investigates project questions and verifies evidence.');
+  await page.getByRole('button',{name:'Add agent',exact:true}).click();await agents.last().locator('[data-agent="label"]').fill('Reviewer');await agents.last().locator('[data-agent="role"]').fill('Checks changes for correctness and reproduces defects.');
+  await page.locator('#setting-setupLabel').fill('Project owner');await shot('setup-workspace',true);
+  await page.getByRole('button',{name:'Create workspace',exact:true}).click();await page.getByText('Your workspace is ready').waitFor();await shot('setup-ready');
+  await page.close();
+ }finally{await new Promise(resolve=>setup.server.close(resolve));for(const [key,value] of Object.entries(previousHome))if(value===undefined)delete process.env[key];else process.env[key]=value;}
+}
 const git=(...args)=>execFileSync('git',args,{cwd:root,windowsHide:true,stdio:'pipe'});
 const record=(id,from,to,kind,title,body,status='open',session=null)=>({meta:{schema:1,id,from,to,kind,status,priority:'normal',created:'2026-10-08T09:00:00Z',title,reply_to:null,...(session?{session}:{})},body});
 try{
@@ -24,6 +54,7 @@ try{
  await mkdir(path.join(root,'docs'));await writeFile(path.join(root,'docs','export.md'),'# Export verification\n\nThe sample contains formulas, dates, and empty cells.\n\n| Cell type | Observed result |\n| --- | --- |\n| Formula | Preserved |\n| Empty cell | Position preserved |\n| Date | Default format |\n\nThese checks cover the sample only.');git('add','.');git('commit','-m','Synthetic documentation fixtures');
  app=await createDashboard(root,{noSync:true});await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
  browser=await chromium.launch({headless:true,...(process.env.DASHBOARD_BROWSER_CHANNEL?{channel:process.env.DASHBOARD_BROWSER_CHANNEL}:{})});const page=await browser.newPage({viewport:{width:1440,height:1200},deviceScaleFactor:1});page.on('pageerror',error=>{throw error;});await mkdir(output,{recursive:true});
+ await captureOnboarding(browser);
  await page.goto('http://127.0.0.1:'+app.server.address().port);await page.locator('.message-card').first().waitFor();
  const capture=async name=>{await page.evaluate(()=>{document.activeElement?.blur();window.scrollTo({top:0,behavior:'instant'});});await page.waitForFunction(()=>window.scrollY===0);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>{window.scrollTo(0,0);resolve();}))));await page.screenshot({path:path.join(output,name+'.png'),fullPage:false});};
  await capture('read-report');
@@ -37,4 +68,4 @@ try{
  const card=title=>page.locator('#settingsForm > section').filter({has:page.getByRole('heading',{name:title,exact:true})});
  await card('Workspace and participants').screenshot({path:path.join(output,'participant-directory.png')});await card('Git automation').screenshot({path:path.join(output,'git-settings.png')});
  console.log('README screenshots written to '+output);
-}finally{if(browser)await browser.close();if(app)await new Promise(resolve=>app.server.close(resolve));await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
+}finally{if(browser)await browser.close();if(app)await new Promise(resolve=>app.server.close(resolve));await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:200});await rm(sandbox,{recursive:true,force:true,maxRetries:10,retryDelay:200});}

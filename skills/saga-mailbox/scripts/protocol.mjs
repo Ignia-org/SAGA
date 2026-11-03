@@ -41,7 +41,18 @@ export async function safePath(root, relative) {
   }
   return current;
 }
-export async function loadConfig(root) { return validateConfig(JSON.parse(await readFile(await safePath(root, 'exchange.config.json'), 'utf8'))); }
+export const CONFIG_FILE = 'exchange.config.json';
+function configError(code, message) { const error = new Error(message); error.code = code; return error; }
+export function parseConfigText(text) {
+  text = text.replace(/^\uFEFF/, '');
+  if (!text.trim()) throw configError('EMPTY_CONFIG', `${CONFIG_FILE} is empty. Initialize the workspace again or restore the file from Git.`);
+  let data; try { data = JSON.parse(text); } catch (e) { throw configError('INVALID_CONFIG', `${CONFIG_FILE} is not valid JSON: ${e.message}`); }
+  try { return validateConfig(data); } catch (e) { throw configError('INVALID_CONFIG', `${CONFIG_FILE} is invalid: ${e.message}`); }
+}
+export async function loadConfig(root) {
+  const text = await readFile(await safePath(root, CONFIG_FILE), 'utf8').catch(e => { if (e.code === 'ENOENT') throw configError('ENOENT', `No SAGA workspace here: ${CONFIG_FILE} is missing. Initialize the workspace first.`); throw e; });
+  return parseConfigText(text);
+}
 export function validateRecord(meta, body, config, location) {
   const ids = new Set(config.participants.map(p => p.id));
   if (meta.schema !== 1 || typeof meta.id !== 'string' || !slug.test(meta.id)) fail('Message requires schema: 1 and a stable slug ID.');
