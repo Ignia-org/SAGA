@@ -93,9 +93,13 @@ function renderInspection(x) {
     <p>If your communication repository is elsewhere, enter its path above, or enter a new empty folder to clone it. Otherwise SAGA can start a Git repository in this folder; existing files are left untouched.</p>
     <div class="actions"><button type="button" data-setup="create">Create a Git repository here</button></div></section>`;
   if (!x.isRepositoryRoot) return `<section class="card panel"><h3>This folder is inside another repository</h3><p>SAGA works from the repository root: <code>${esc(x.repository)}</code></p><div class="actions"><button class="primary" type="button" data-setup="use-top">Use the repository root</button></div></section>`;
+  const r = x.remoteStatus, commits = n => n + ' new commit' + (n === 1 ? '' : 's'), updateButton = `<div class="actions"><button class="primary" type="button" data-setup="pull">Update from ${esc(r?.remote || 'remote')}</button></div>`;
+  const remoteNote = !r ? '' : r.error ? `<p class="hint">SAGA could not check ${esc(r.remote)} for updates, so this folder may be out of date: ${esc(r.error.split('\n')[0])}</p>` : '';
+  const outdated = r?.exists && r.behind > 0, outdatedBox = outdated ? box('info', `<strong>This folder is not up to date.</strong> ${esc(r.remote)}/${esc(r.branch)} has ${commits(r.behind)} that this folder does not have yet.${r.ahead ? ` This folder also has ${r.ahead} local commit${r.ahead === 1 ? '' : 's'}, so reconcile them in Git first (for example <code>git pull --rebase</code>).` : ' Updating fast-forwards the folder; it never creates a merge commit.'}`) + (r.ahead ? '' : updateButton) : '';
+  if (outdated && r.workspace && x.workspace !== 'valid') return `<section class="card panel"><h3>A SAGA workspace exists on ${esc(r.remote)}</h3>${outdatedBox}<p class="hint">Update this folder to get its configuration and messages, instead of creating a new one.</p></section>`;
   if (x.workspace === 'valid') {
     const me = x.participants.find(p => p.id === x.identity);
-    return `<section class="card panel"><h3>Workspace found: ${esc(x.title)}</h3>
+    return `<section class="card panel"><h3>Workspace found: ${esc(x.title)}</h3>${outdatedBox}${remoteNote}
       <p>${x.participants.length} participants: ${x.participants.map(p => esc(p.label)).join(', ')}${x.branch ? ', on branch ' + esc(x.branch) : ''}.</p>
       <div class="settings-grid">${settingsChoice('openIdentity', 'You are', x.identity, x.participants.map(p => [p.id, p.label + ' (' + p.id + ')']))}</div>
       <p class="hint">The workspace is set up for <strong>${esc(me?.label || x.identity)}</strong>. Choosing someone else updates the shared workspace configuration and commits it.</p>
@@ -106,7 +110,7 @@ function renderInspection(x) {
     ${x.discovered?.commit ? `<p>A valid version exists in Git history (${esc(new Date(x.discovered.date).toLocaleDateString())}). To restore it, run in the repository:</p><pre class="setup-command">git checkout ${esc(x.discovered.commit.slice(0, 12))} -- exchange.config.json</pre>` : ''}
     <p class="hint">Fix the file in the repository or restore it from Git, then check again. A recent pull may also have brought an incomplete change.</p><div class="actions"><button type="button" data-setup="recheck">Check again</button></div></section>`;
   if (x.isApplication || x.insideApplication) return box('warn', '<strong>This is the SAGA application folder.</strong><p>Choose or create a separate repository for your messages.</p>');
-  return renderCreateForm(x);
+  return outdatedBox || remoteNote ? `<div class="setup-remote">${outdatedBox}${remoteNote}</div>` + renderCreateForm(x) : renderCreateForm(x);
 }
 
 function setupStatus(text) { const status = document.getElementById('setupStatus'); if (status) status.textContent = text; }
@@ -200,6 +204,7 @@ document.getElementById('feed').addEventListener('click', e => {
   if (action === 'remove-agent') button.closest('[data-setup-agent],[data-setup-person]').remove();
   if (action === 'recheck') inspectFolder(x.path);
   if (action === 'use-top') inspectFolder(x.repository);
+  if (action === 'pull') setupCall('Updating folder…', async () => showInspection(await api('prepare', { action: 'pull', root: x.path })));
   if (action === 'create') setupCall('Creating repository…', async () => showInspection(await api('prepare', { action: 'create', root: x.path })));
   if (action === 'open') setupCall('Opening workspace…', () => mutate('workspace', { root: x.path, gitIdentity: gitIdentity(), identity: document.getElementById('setting-openIdentity')?.value }));
   if (action === 'initialize') { let config; try { config = workspaceConfig(); } catch (error) { notice(error.message); return; } setupCall('Creating workspace…', () => mutate('workspace', { root: x.path, initialize: true, config, gitIdentity: gitIdentity() })); }

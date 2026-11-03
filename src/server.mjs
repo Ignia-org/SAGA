@@ -30,7 +30,7 @@ export async function createDashboard(root, options = {}) {
   const appReal = await realpath(appRoot).catch(() => appRoot);
   const token = randomBytes(24).toString('hex'); let queue = Promise.resolve();
   const pdfTickets = new Map();
-  const sync = { state: 'idle', message: 'Ready', last: null };
+  const sync = { state: 'idle', message: 'Ready', last: null, diverged: null };
   const git = (...args) => exec('git', args, { cwd: root, timeout: 30000, maxBuffer: 8e6, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).then(r => r.stdout.trim());
   const locked = fn => { const job = queue.then(() => fn()); queue = job.catch(() => {}); return job; };
   const read = async relative => readFile(await safePath(root, relative), 'utf8').catch(e => { if (e.code === 'ENOENT') return null; throw e; });
@@ -103,22 +103,53 @@ export async function createDashboard(root, options = {}) {
     await git('config', '--local', '--unset', 'saga.pendingBranch').catch(() => {});
     await git('config', '--local', '--unset', 'dashboard.pendingBranch').catch(() => {});
   }
-  async function synchronize(operation = 'configured') {
-    sync.state = 'syncing'; sync.message = 'Synchronizing…';
+  // Updates the remote-tracking ref of the active branch; a branch not yet on the remote is not an error.
+  async function fetchActiveBranch(config, branch) {
+    try { await git('fetch', '--no-tags', config.gitRemote, `+refs/heads/${branch}:refs/remotes/${config.gitRemote}/${branch}`); return true; }
+    catch (e) { if (/couldn't find remote ref/i.test(e.stderr || '')) return false; throw e; }
+  }
+  function divergence(config, status) {
+    const error = new Error(`Your branch and ${config.gitRemote} have diverged: ${status.ahead} local commit${status.ahead === 1 ? '' : 's'} not yet published, ${status.behind} remote commit${status.behind === 1 ? '' : 's'} not yet applied. Choose “Rebase and push” to replay your local commits on top of the remote ones without a merge commit, or reconcile the branch in Git.`);
+    error.diverged = { ahead: status.ahead, behind: status.behind }; return error;
+  }
+  // Before writing, apply remote commits by fast-forward so the new commit is created on top of them.
+  async function catchUp(config) {
+    if (options.noSync || !config.autoCommit || !(config.autoPull || config.autoPush)) return;
     try {
-      if (!['configured','pull','push'].includes(operation)) throw new Error('Unknown synchronization operation.');
+      const branch = await checkBranch(config);
+      if (!await fetchActiveBranch(config, branch)) return;
+      const status = await gitStatus(config);
+      if (status.behind > 0 && status.ahead === 0) await git('merge', '--ff-only', '--quiet', status.remoteRef);
+    } catch {} // Offline or blocked: the write stays local and the next synchronization reports the problem.
+  }
+  async function synchronize(operation = 'configured') {
+    sync.state = 'syncing'; sync.message = 'Synchronizing…'; sync.diverged = null;
+    try {
+      if (!['configured', 'pull', 'push', 'rebase'].includes(operation)) throw new Error('Unknown synchronization operation.');
       const preferences = await loadConfig(root);
       if (operation === 'configured' && !preferences.autoPull && !preferences.autoPush) { sync.state = 'idle'; sync.message = 'Automatic Git synchronization disabled'; return sync; }
       if (await git('status', '--porcelain')) throw new Error('Local edits present. Automatic synchronization is paused until they are committed.');
       const config = await loadConfig(root), branch = await checkBranch(config);
-      const push = operation === 'push' || (operation === 'configured' && config.autoPush);
-      const pull = operation === 'pull' || (operation === 'configured' && config.autoPull);
+      const push = ['push', 'rebase'].includes(operation) || (operation === 'configured' && config.autoPush);
+      const pull = ['pull', 'rebase'].includes(operation) || (operation === 'configured' && config.autoPull);
+      if (push) {
+        const pending = await pendingBranch(); if (pending && pending !== branch) throw new Error('Pending publication belongs to branch ' + pending + '. Switch back.');
+        if (await publicationHeld() && (await gitStatus(config)).ahead !== 0) throw new Error('Remote publication is paused. Local commits remain unpublished.');
+      }
+      const remoteBranch = await fetchActiveBranch(config, branch);
+      let status = await gitStatus(config);
+      if (remoteBranch && status.ahead > 0 && status.behind > 0) {
+        if (operation !== 'rebase') throw divergence(config, status);
+        try { await git('-c', 'core.editor=true', 'rebase', status.remoteRef); }
+        catch (e) { await git('rebase', '--abort').catch(() => {}); throw new Error('Rebase stopped because local and remote commits change the same lines. Nothing was changed; reconcile the branch in Git.\n' + (e.stderr?.trim() || e.message)); }
+        status = await gitStatus(config);
+      }
+      if (pull && remoteBranch && status.behind > 0) await git('merge', '--ff-only', '--quiet', status.remoteRef);
       if (push) await publish(config);
-      if (pull) await git('pull', '--ff-only', config.gitRemote, branch);
-      const status = await gitStatus(config);
+      status = await gitStatus(config);
       const held = await publicationHeld() && status.ahead !== 0;
-      sync.state = held ? 'pending' : 'ok'; sync.message = held ? 'Publication held · local work retained' : push || pull ? 'Synchronization complete' : 'Automatic Git synchronization disabled'; sync.last = new Date().toISOString();
-    } catch (e) { sync.state = 'error'; sync.message = e.stderr?.trim() || e.message; }
+      sync.state = held ? 'pending' : 'ok'; sync.message = held ? 'Publication held · local work retained' : operation === 'rebase' ? 'Local commits replayed on the remote branch and published' : push || pull ? 'Synchronization complete' : 'Automatic Git synchronization disabled'; sync.last = new Date().toISOString();
+    } catch (e) { sync.state = 'error'; sync.message = e.stderr?.trim() || e.message; sync.diverged = e.diverged || null; }
     return sync;
   }
   let branchCacheKey = '', branchCache = [];
@@ -306,6 +337,17 @@ export async function createDashboard(root, options = {}) {
     const source = history ? 'history' : mailbox ? 'mailboxes' : 'channels';
     return { source, commit: history?.commit || null, date: history?.date || null, settings: history?.config || null, mailboxDirectory: mailbox?.directory || history?.config.mailboxDirectory || 'mailboxes', channelFiles: channels.map(c => c.relative).slice(0, 20), participants, suggestedIdentity: suggested, searched };
   }
+  // Fetches the upstream of the checked-out branch and compares it, so setup can offer to update an outdated folder.
+  async function remoteStatus(repository, branch, remotes) {
+    const remote = await gitIn(repository, ['config', `branch.${branch}.remote`]).catch(() => '') || (remotes.includes('origin') ? 'origin' : remotes[0]);
+    const mergeRef = await gitIn(repository, ['config', `branch.${branch}.merge`]).catch(() => '') || 'refs/heads/' + branch;
+    const remoteBranch = mergeRef.replace(/^refs\/heads\//, ''), ref = `refs/remotes/${remote}/${remoteBranch}`, status = { remote, branch: remoteBranch, ref };
+    try { await gitIn(repository, ['fetch', '--no-tags', remote, `+${mergeRef}:${ref}`], 120000); }
+    catch (e) { const detail = e.stderr?.trim() || e.message; return /couldn't find remote ref/i.test(detail) ? { ...status, exists: false } : { ...status, error: detail }; }
+    const hasHead = await gitIn(repository, ['rev-parse', '--verify', 'HEAD']).then(() => true, () => false);
+    const [behind, ahead] = hasHead ? (await gitIn(repository, ['rev-list', '--left-right', '--count', `${ref}...HEAD`])).split(/\s+/).map(Number) : [Number(await gitIn(repository, ['rev-list', '--count', ref])), 0];
+    return { ...status, exists: true, behind, ahead, workspace: await gitIn(repository, ['cat-file', '-e', `${ref}:${CONFIG_FILE}`]).then(() => true, () => false) };
+  }
   async function gitInstalled() { return gitIn(appReal, ['--version']).then(() => true).catch(e => e.code !== 'ENOENT'); }
   async function inspectFolder(input) {
     const target = expandPath(input), result = { path: target, exists: false, directory: false, empty: false, gitInstalled: await gitInstalled(), repository: null, isRepositoryRoot: false, isApplication: false, insideApplication: false, workspace: 'none', problem: null, title: null, identity: null, participants: [], remotes: [], branch: null, gitUser: { name: '', email: '' }, current: false };
@@ -323,6 +365,7 @@ export async function createDashboard(root, options = {}) {
         if (result.isRepositoryRoot) {
           result.remotes = (await gitIn(real, ['remote']).catch(() => '')).split('\n').filter(Boolean);
           result.branch = await gitIn(real, ['branch', '--show-current']).catch(() => '');
+          if (result.remotes.length && result.branch) result.remoteStatus = await remoteStatus(real, result.branch, result.remotes);
           try {
             const text = await readFile(await safePath(real, CONFIG_FILE), 'utf8').catch(e => { if (e.code === 'ENOENT') return null; throw e; });
             if (text === null) result.workspace = 'missing';
@@ -364,6 +407,15 @@ export async function createDashboard(root, options = {}) {
   }
   async function prepareFolder(data) {
     const target = expandPath(data.root);
+    if (data.action === 'pull') {
+      const x = await inspectFolder(target), r = x.remoteStatus;
+      if (!x.isRepositoryRoot || !r) throw new Error('This folder has no remote branch to update from.');
+      if (r.error) throw new Error(`SAGA could not reach ${r.remote}. Check your network and Git access on this computer.\n${r.error}`);
+      if (!r.exists || !r.behind) return x;
+      if (r.ahead) throw new Error(`This folder has ${r.ahead} local commit${r.ahead === 1 ? '' : 's'} that ${r.remote} does not have, and ${r.remote} has ${r.behind} new commit${r.behind === 1 ? '' : 's'}. Reconcile them in Git (for example git pull --rebase), then check the folder again.`);
+      await gitIn(x.path, ['merge', '--ff-only', '--quiet', r.ref]).catch(e => { throw new Error('Update stopped because local changes in this folder would be overwritten. Commit or remove them, then try again.\n' + (e.stderr?.trim() || e.message)); });
+      return inspectFolder(target);
+    }
     if (insidePath(target, appReal)) throw new Error('Choose a folder outside the SAGA application folder. SAGA keeps your messages in a separate repository.');
     if (!await gitInstalled()) throw new Error('Git is not installed or not on PATH. Install Git, then restart SAGA.');
     const info = await stat(target).catch(() => null);
@@ -491,7 +543,9 @@ export async function createDashboard(root, options = {}) {
       if (url.pathname === '/api/folders') return send(200, await listFolders(data.path));
       if (url.pathname === '/api/inspect') return send(200, await inspectFolder(data.root));
       if (url.pathname === '/api/prepare') return send(200, await prepareFolder(data));
+      const writes = ['/api/message', '/api/update', '/api/receipt-dismiss', '/api/cleanup', '/api/settings'];
       const result = await locked(async () => {
+        if (writes.includes(url.pathname)) await catchUp(await loadConfig(root));
         const actionResult = await (async () => {
         if (url.pathname === '/api/branches') {
           const config = await loadConfig(root);
@@ -536,7 +590,6 @@ export async function createDashboard(root, options = {}) {
         }
         throw new Error('Unknown action');
         })();
-        const writes = ['/api/message', '/api/update', '/api/receipt-dismiss', '/api/cleanup', '/api/settings'];
         if (writes.includes(url.pathname) && !options.noSync) {
           const config = await loadConfig(root);
           if (config.autoPush || (config.autoPull && config.syncAfterWrite)) {
@@ -569,7 +622,7 @@ export async function createDashboard(root, options = {}) {
       if (Date.now() >= nextSync) { nextSync = Date.now() + config.syncSeconds * 1000; await synchronize(); }
       if (Date.now() >= nextCleanup) {
         nextCleanup = config.cleanup === 'automatic' ? Date.now() + config.cleanupSeconds * 1000 : Infinity;
-        if (config.cleanup === 'automatic') { const count = await clean(); if (count && (config.autoPush || config.syncAfterWrite)) await synchronize(); }
+        if (config.cleanup === 'automatic') { await catchUp(config); const count = await clean(); if (count && (config.autoPush || config.syncAfterWrite)) await synchronize(); }
       }
     }).catch(e => { sync.state = 'error'; sync.message = e.message; }).finally(arm), Math.max(1000, due - Date.now())); timer.unref();
   }

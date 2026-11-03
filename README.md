@@ -98,7 +98,9 @@ Choose **Browse…** and navigate to your communication repository. Folders that
 
 ![Folder browser with a new folder name](docs/screenshots/setup-browse.png)
 
-SAGA then checks the folder and tells you what it found. If the folder is missing or empty, you have two choices:
+SAGA then checks the folder and tells you what it found. It also asks the remote for new commits: if the folder is behind (for example on a computer you have not used for a while), SAGA offers **Update from origin** before anything else, so you work from the current workspace. Updating only fast-forwards; it never creates a merge commit.
+
+If the folder is missing or empty, you have two choices:
 
 - **Clone an existing repository**: the typical case on a new computer, when your team's communication repository already exists on GitHub or elsewhere. SAGA uses the Git credentials already configured on your computer.
 - **Start a new repository**: SAGA creates an empty Git repository there. You can add a remote (for example on GitHub) later.
@@ -243,7 +245,7 @@ In **Settings**, describe each participant's responsibilities and default report
 
 ![Git automation settings](docs/screenshots/git-settings.png)
 
-SAGA never stashes, resets, merges, or rebases on its own. When something unusual happens (local edits, diverged branches), it stops and tells you. The full behavior of every setting is in the [reference](docs/REFERENCE.md#settings-and-defaults).
+When automatic pull or push is on, SAGA applies new remote commits before saving, so your commits land on top of the agents' work without merge commits. SAGA never stashes, resets, merges, or rebases on its own. When something unusual happens (local edits, diverged branches), it stops and tells you; for diverged branches, the header offers **Rebase and push**. The full behavior of every setting is in the [reference](docs/REFERENCE.md#settings-and-defaults).
 
 ## Try the demo
 

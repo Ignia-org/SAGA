@@ -45,9 +45,15 @@ The repository you open is remembered in `.saga/local.json` inside the SAGA fold
 - **Push now** in the header publishes the current branch, including commits created outside SAGA. Settings also offers explicit **Pull now** and **Push pending commits** actions.
 - **Auto push** in the header enables automatic commits and synchronization after writes.
 
+Before any write (sending, editing, cleanup, settings), when automatic pull or push is on, SAGA fetches the active branch and fast-forwards to new remote commits. Your commit is then created on top of the agents' latest work, and the following push is accepted without a merge. If the remote cannot be reached, the write stays local and the next synchronization reports it.
+
 Sending a message saves it locally first. Git publication then continues in the background, and the sync status reports a failure separately from the local save. Other writes wait for their publication attempt. A message reaches another checkout only after it is published and that checkout synchronizes.
 
-Git operations stop when there are staged changes, uncommitted edits, a mismatched branch, or divergence. SAGA never stashes, resets, merges, or rebases automatically. A pull is fast-forward only. A push publishes all commits ahead on the branch, including the configuration commit that enables automatic push.
+Each synchronization fetches the active branch, applies remote commits by fast-forward (when pull is on), then pushes (when push is on). Git operations stop when there are staged changes, uncommitted edits, or a mismatched branch. SAGA never stashes, resets, merges, or rebases automatically. A pull is fast-forward only. A push publishes all commits ahead on the branch, including the configuration commit that enables automatic push.
+
+If local and remote commits have diverged (for example when an agent pushed between your save and its publication), synchronization stops and the header shows **Rebase and push**. After confirmation, SAGA replays your unpublished commits on top of the remote ones and pushes them, without a merge commit. If both sides changed the same lines, the rebase is aborted, nothing changes, and you reconcile the branch in Git.
+
+During setup, checking a folder also fetches the upstream of its checked-out branch. When the folder is behind, setup offers **Update from origin** (fast-forward only). If the remote already contains a SAGA workspace that the folder lacks, that update is the only action offered, so that setup never creates a second configuration. A folder with its own unpublished commits must be reconciled in Git first.
 
 With manual commits, SAGA saves files and leaves committing to you. Automatic cleanup requires automatic commits, so that its history is retained.
 
